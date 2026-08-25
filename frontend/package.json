@@ -6,7 +6,7 @@
     "dev": "next dev --turbopack",
     "dev:webpack": "next dev",
     "build": "next build",
-    "start": "next start -p 3700",
+    "start": "next start -p 3600",
     "lint": "next lint"
   },
   "dependencies": {
