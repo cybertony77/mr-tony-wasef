@@ -18,6 +18,12 @@ import { IconSearch, IconArrowRight } from '@tabler/icons-react';
 import { getStudentLesson } from '../../lib/studentLessons';
 import { isDeadlinePassedEgypt } from '../../lib/deadlineTimeEgypt';
 import { isCodeNumberOfDaysValid } from '../../lib/codeNumberOfDays';
+import CodePopupMessage from '../../components/CodePopupMessage';
+import {
+  CODE_ERROR,
+  getVerificationCodeMessage,
+  resolveVerificationCodeError,
+} from '../../lib/verificationCodeMessages';
 
 function unlockInfoFromVhcResponse(data) {
   if (!data) return null;
@@ -29,23 +35,6 @@ function unlockInfoFromVhcResponse(data) {
     access_started_at: data.access_started_at || null,
     deadline_date: data.deadline_date || null,
   };
-}
-
-function formatCodePopupMessage(msg) {
-  if (!msg) return '';
-  return String(msg).replace(/^❌\s*/, '').trim();
-}
-
-function CodePopupMessage({ message }) {
-  if (!message) return null;
-  return (
-    <div role="alert" className="code-popup-msg">
-      <span aria-hidden="true" className="code-popup-msg-icon">
-        !
-      </span>
-      <span className="code-popup-msg-text">{formatCodePopupMessage(message)}</span>
-    </div>
-  );
 }
 
 // Input with Button Component (matching manage online system style)
@@ -459,7 +448,8 @@ export default function HomeworksVideos() {
     } catch (err) {
       console.error('Failed to decrement VHC views:', err);
       vhcViewsDecrementDoneRef.current = false;
-      if (err.response?.data?.error?.includes('no views remaining')) {
+      if (err.response?.data?.error_code === CODE_ERROR.NO_VIEWS_REMAINING
+        || err.response?.data?.error?.includes('no views remaining')) {
         const sessionId = typeof v._id === 'string' ? v._id : v._id.toString();
         setUnlockedSessions((prev) => {
           const next = new Map(prev);
@@ -469,7 +459,7 @@ export default function HomeworksVideos() {
         if (studentId) {
           queryClient.invalidateQueries({ queryKey: studentKeys.detail(studentId) });
         }
-        setVhcError('❌ Sorry, This code has no views remaining');
+        setVhcError(resolveVerificationCodeError('vhc', err.response?.data || CODE_ERROR.NO_VIEWS_REMAINING));
       }
     }
   }, [studentId, queryClient]);
@@ -530,7 +520,7 @@ export default function HomeworksVideos() {
               return next;
             });
           } else {
-            setVhcError(syncRes.data?.error || '❌ Sorry, This code is expired');
+            setVhcError(resolveVerificationCodeError('vhc', syncRes.data));
             setUnlockedSessions((prev) => {
               const next = new Map(prev);
               next.delete(sessionId);
@@ -547,7 +537,10 @@ export default function HomeworksVideos() {
       } else if (unlockedInfo) {
         if (unlockedInfo.code_settings === 'deadline_date' && unlockedInfo.deadline_date) {
           if (isDeadlinePassedEgypt(unlockedInfo.deadline_date, null)) {
-            setVhcError('❌ Sorry, This code is expired');
+            setVhcError(getVerificationCodeMessage('vhc', CODE_ERROR.DEADLINE_EXPIRED, {
+              code_settings: 'deadline_date',
+              deadline_date: unlockedInfo.deadline_date,
+            }));
             const newUnlocked = new Map(unlockedSessions);
             newUnlocked.delete(sessionId);
             setUnlockedSessions(newUnlocked);
@@ -624,12 +617,12 @@ export default function HomeworksVideos() {
   // Handle VHC submission
   const handleVHCSubmit = async () => {
     if (!vhc || vhc.length !== 9) {
-      setVhcError('❌ VHC code must be 9 characters');
+      setVhcError(getVerificationCodeMessage('vhc', CODE_ERROR.INVALID_LENGTH));
       return;
     }
 
     if (!pendingVideo) {
-      setVhcError('❌ No video pending');
+      setVhcError(getVerificationCodeMessage('vhc', CODE_ERROR.NO_VIDEO_PENDING));
       return;
     }
 
@@ -690,10 +683,10 @@ export default function HomeworksVideos() {
         setPendingVideo(null);
         setVhc('');
       } else {
-        setVhcError(response.data.error || '❌ Invalid VHC code');
+        setVhcError(resolveVerificationCodeError('vhc', response.data));
       }
     } catch (err) {
-      setVhcError(err.response?.data?.error || '❌ Failed to verify VHC code');
+      setVhcError(resolveVerificationCodeError('vhc', err.response?.data || CODE_ERROR.VERIFY_FAILED));
     } finally {
       setIsCheckingVhc(false);
     }

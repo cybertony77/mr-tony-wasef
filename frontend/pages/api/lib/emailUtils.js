@@ -1,6 +1,7 @@
 import { google } from 'googleapis';
 import fs from 'fs';
 import path from 'path';
+import { parseSystemBackground } from '../../../lib/systemColors';
 
 // Load environment variables from env.config
 function loadEnvConfig() {
@@ -38,6 +39,9 @@ const ASSISTANT_DRIVE_LINK = envConfig.ASSISTANT_DRIVE_LINK || process.env.ASSIS
 const ADMIN_DRIVE_LINK = envConfig.ADMIN_DRIVE_LINK || process.env.ADMIN_DRIVE_LINK || '';
 const SYSTEM_DOMAIN = envConfig.SYSTEM_DOMAIN || process.env.SYSTEM_DOMAIN || 'https://demosys.myvnc.com';
 const SYSTEM_NAME = envConfig.SYSTEM_NAME || process.env.SYSTEM_NAME || 'AI Agentic Assistant System';
+const EMAIL_HEADER_BACKGROUND = parseSystemBackground(
+  envConfig.SYSTEM_COLORS || process.env.SYSTEM_COLORS
+);
 
 // Initialize Gmail API client
 let gmailClient = null;
@@ -195,8 +199,8 @@ function generateEmailHTML(name, role, driveLink) {
   }
   
   const html = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #2C5281; padding: 0;">
-      <div style="padding: 40px 30px; background-color: #2C5281;">
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: ${EMAIL_HEADER_BACKGROUND}; padding: 0;">
+      <div style="padding: 40px 30px; background: ${EMAIL_HEADER_BACKGROUND};">
         <div style="text-align: center; margin-bottom: 30px;">
           <img src="${SYSTEM_DOMAIN}/logo.png" alt="Logo" style="width: 100px; height: 100px; margin: 0 auto; display: block; border-radius: 10px;" />
         </div>
@@ -204,7 +208,7 @@ function generateEmailHTML(name, role, driveLink) {
         <p style="color: white; font-size: 16px; margin: 30px 0 0 0;">Best regards,</p>
         <p style="color: white; font-size: 16px; margin: 5px 0 0 0;">Support Team 🤝</p>
       </div>
-      <div style="border-top: 1px solid rgba(255, 255, 255, 0.2); padding: 30px; background-color: #2C5281;">
+      <div style="border-top: 1px solid rgba(255, 255, 255, 0.2); padding: 30px; background: ${EMAIL_HEADER_BACKGROUND};">
         <div style="color: white; font-size: 20px; font-weight: bold; font-family: sans-serif; margin-bottom: 15px; text-align: center;">${SYSTEM_NAME}</div>
         <div style="color: white; text-decoration: underline; font-size: 14px; margin-bottom: 20px; text-align: center;">
           <a href="${SYSTEM_DOMAIN}" style="color: white; text-decoration: underline;">${SYSTEM_DOMAIN.replace(/^https?:\/\//, '')}</a>
@@ -290,8 +294,8 @@ function generatePasswordChangeEmailHTML(name, role) {
   `;
   
   const html = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #2C5281; padding: 0;">
-      <div style="padding: 40px 30px; background-color: #2C5281;">
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: ${EMAIL_HEADER_BACKGROUND}; padding: 0;">
+      <div style="padding: 40px 30px; background: ${EMAIL_HEADER_BACKGROUND};">
         <div style="text-align: center; margin-bottom: 30px;">
           <img src="${SYSTEM_DOMAIN}/logo.png" alt="Logo" style="width: 100px; height: 100px; margin: 0 auto; display: block; border-radius: 10px;" />
         </div>
@@ -299,7 +303,7 @@ function generatePasswordChangeEmailHTML(name, role) {
         <p style="color: white; font-size: 16px; margin: 30px 0 0 0;">Best regards,</p>
         <p style="color: white; font-size: 16px; margin: 5px 0 0 0;">Support Team 🤝</p>
       </div>
-      <div style="border-top: 1px solid rgba(255, 255, 255, 0.2); padding: 30px; background-color: #2C5281;">
+      <div style="border-top: 1px solid rgba(255, 255, 255, 0.2); padding: 30px; background: ${EMAIL_HEADER_BACKGROUND};">
         <div style="color: white; font-size: 20px; font-weight: bold; font-family: sans-serif; margin-bottom: 15px; text-align: center;">${SYSTEM_NAME}</div>
         <div style="color: white; text-decoration: underline; font-size: 14px; margin-bottom: 20px; text-align: center;">
           <a href="${SYSTEM_DOMAIN}" style="color: white; text-decoration: underline;">${SYSTEM_DOMAIN.replace(/^https?:\/\//, '')}</a>

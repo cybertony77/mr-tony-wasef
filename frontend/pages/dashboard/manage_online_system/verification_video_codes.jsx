@@ -1845,7 +1845,7 @@ export default function VerificationVideoCodes() {
             bottom: 0;
             background: rgba(0, 0, 0, 0.5);
             display: flex;
-            align-items: flex-start;
+            align-items: center;
             justify-content: center;
             z-index: 1000;
             backdrop-filter: blur(4px);

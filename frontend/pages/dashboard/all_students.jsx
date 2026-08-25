@@ -399,6 +399,7 @@ export default function AllStudents() {
           <SessionTable
             data={students}
             height={400}
+            compactOnMobile
             showMainCenter={true}
             showGrade={true}
             showCourse={true}
@@ -667,6 +668,7 @@ export default function AllStudents() {
             }
             .history-container {
               padding: 16px;
+              overflow-x: hidden;
             }
             .history-title {
               font-size: 1.3rem;
@@ -679,6 +681,7 @@ export default function AllStudents() {
             }
             .history-container {
               padding: 12px;
+              overflow-x: hidden;
             }
             .history-title {
               font-size: 1.2rem;

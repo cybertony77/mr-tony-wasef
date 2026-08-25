@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/router";
 import Image from 'next/image';
 import dynamic from 'next/dynamic';
@@ -340,246 +340,47 @@ export default function MyQuizzes() {
     return null;
   };
 
-  // Track which quizzes have already had deadline penalties applied (to prevent duplicate scoring)
-  const deadlinePenaltiesAppliedRef = useRef(new Set());
-  
-  // After deadline: if the student never completed this quiz online, set quizDegree to missed (lesson created via API if needed).
+  // After deadline: mark missed quiz + apply scoring (server-side idempotent).
   useEffect(() => {
-    console.log(`[DEADLINE] useEffect triggered - profile?.id: ${profile?.id}, quizzes.length: ${quizzes.length}, profile?.lessons:`, profile?.lessons);
-    
-    if (!profile?.id || centerFilteredQuizzes.length === 0) {
-      console.log(`[DEADLINE] useEffect early return - missing profile.id or no quizzes`);
-      return;
-    }
-    
-    // Allow the check to proceed even if lessons is undefined - we'll treat it as empty object
-    // The API will create the lesson if it doesn't exist
+    if (!profile?.id || centerFilteredQuizzes.length === 0) return;
 
     const checkDeadlines = async () => {
-      console.log(`[DEADLINE] Starting deadline check for ${centerFilteredQuizzes.length} quizzes`);
+      let profileInvalidated = false;
+
       for (const quiz of centerFilteredQuizzes) {
-        // Only check if quiz has deadline and is not completed
         if (
-          quiz.deadline_type === 'with_deadline' &&
-          quiz.deadline_date &&
-          !completedQuizzes.has(quiz._id) &&
-          quiz.lesson &&
-          quiz.lesson.trim()
+          quiz.deadline_type !== 'with_deadline' ||
+          !quiz.deadline_date ||
+          completedQuizzes.has(quiz._id) ||
+          !quiz.lesson?.trim()
         ) {
-          console.log(`[DEADLINE] Checking quiz ${quiz._id}, deadline: ${quiz.deadline_date}, lesson: ${quiz.lesson}`);
-          if (isDeadlinePassedEgypt(quiz.deadline_date, quiz.deadline_time)) {
-            const lessonName = quiz.lesson.trim();
-            console.log(`[DEADLINE] Deadline passed for quiz ${quiz._id}, lesson: ${lessonName}`);
-            
-            // Check current lesson data to see if we need to update
-            let lessonData = profile?.lessons?.[lessonName];
-            console.log(`[DEADLINE] Current lessonData for "${lessonName}":`, lessonData);
-            
-            const isScoreText = (value) => {
-              if (!value || typeof value !== 'string') return false;
-              // Check if it's a score format like "8 / 10" or contains numbers
-              return /\d+\s*\/\s*\d+/.test(value) || /^\d+$/.test(value.trim());
-            };
-            
-            const deadlineKey = `quiz_${quiz._id}_lesson_${lessonName}`;
-            const hasAlreadyApplied = deadlinePenaltiesAppliedRef.current.has(deadlineKey);
-            const qd = lessonData?.quizDegree;
-            const hasRealScore = qd != null && qd !== '' && isScoreText(qd);
-            const shouldApplyDeadlinePenalty =
-              !hasAlreadyApplied &&
-              !hasRealScore &&
-              qd !== 'No Quiz' &&
-              qd !== "Didn't Attend The Quiz";
-            
-            console.log(`[DEADLINE] shouldApplyDeadlinePenalty check:`, {
-              deadlineKey,
-              hasAlreadyApplied,
-              lessonDataExists: !!lessonData,
-              quizDegreeValue: lessonData?.quizDegree,
-              shouldApplyDeadlinePenalty
-            });
-            
-            if (shouldApplyDeadlinePenalty) {
-              // Check ref FIRST to prevent duplicate calls - this is the primary guard
-              if (deadlinePenaltiesAppliedRef.current.has(deadlineKey)) {
-                console.log(`[DEADLINE] Already processing deadline penalty for quiz ${quiz._id}, lesson ${lessonName} - skipping`);
-                continue;
-              }
-              
-              // Mark as applied IMMEDIATELY to prevent duplicate calls
-              deadlinePenaltiesAppliedRef.current.add(deadlineKey);
-              
-              try {
-                console.log(`[DEADLINE] Processing deadline penalty for quiz ${quiz._id}, lesson ${lessonName}`);
-                
-                // Ensure lesson exists - if not, create it with default schema BEFORE applying penalty
-                if (!lessonData) {
-                  try {
-                    console.log(`[DEADLINE] Creating lesson "${lessonName}" for student ${profile.id}`);
-                    // Create lesson with default schema by calling the API
-                    // The API will create the lesson if it doesn't exist
-                    await apiClient.post(`/api/students/${profile.id}/quiz_degree`, {
-                      lesson: lessonName,
-                      quizDegree: null
-                    });
-                    // Refresh profile to get the newly created lesson
-                    const profileResponse = await apiClient.get('/api/auth/me');
-                    if (profileResponse.data && profileResponse.data.lessons) {
-                      lessonData = profileResponse.data.lessons[lessonName];
-                      // Update profile state to reflect the new lesson
-                      queryClient.setQueryData(['profile'], (old) => ({
-                        ...old,
-                        lessons: profileResponse.data.lessons
-                      }));
-                    }
-                    console.log(`[DEADLINE] Lesson "${lessonName}" created successfully`);
-                  } catch (createErr) {
-                    console.error(`[DEADLINE] Error creating lesson ${lessonName}:`, createErr);
-                    // Remove from ref if creation failed so it can be retried
-                    deadlinePenaltiesAppliedRef.current.delete(deadlineKey);
-                    continue;
-                  }
-                }
-                
-                console.log(`[DEADLINE] Applying quiz deadline penalty for quiz ${quiz._id}, lesson ${lessonName}`);
-                
-                // Update lesson first (always apply this, regardless of scoring system)
-                try {
-                  console.log(`[DEADLINE] Calling API to update quizDegree for lesson "${lessonName}"`);
-                  const updateResponse = await apiClient.post(`/api/students/${profile.id}/quiz_degree`, {
-                    lesson: lessonName,
-                    quizDegree: "Didn't Attend The Quiz"
-                  });
-                  console.log(`[DEADLINE] API response:`, updateResponse.data);
-                  
-                  // Refresh profile after update
-                  await queryClient.invalidateQueries(['profile']);
-                  console.log(`[DEADLINE] Successfully updated quizDegree in database for lesson "${lessonName}"`);
-                } catch (updateErr) {
-                  console.error(`[DEADLINE] Error updating quizDegree for lesson ${lessonName}:`, updateErr);
-                  // Remove from ref if update failed so it can be retried
-                  deadlinePenaltiesAppliedRef.current.delete(deadlineKey);
-                  continue;
-                }
-                
-                // Apply scoring: 0% = -25 points (ONLY if scoring is enabled)
-                if (isScoringEnabled) {
-                  // Check history to see if deadline penalty was already applied
-                  let alreadyApplied = false;
-                  try {
-                    const historyResponse = await apiClient.post('/api/scoring/get-last-history', {
-                      studentId: profile.id,
-                      type: 'quiz',
-                      lesson: lessonName
-                    });
-                    
-                    if (historyResponse.data.found && historyResponse.data.history) {
-                      const lastHistory = historyResponse.data.history;
-                      // Check if this is already a deadline penalty (0%) for this lesson
-                      if (lastHistory.data?.percentage === 0 && lastHistory.process_lesson === lessonName) {
-                        // Check if it was applied recently (within last 5 minutes) to avoid duplicates
-                        const historyTime = new Date(lastHistory.timestamp);
-                        const now = new Date();
-                        const timeDiff = now - historyTime;
-                        if (timeDiff < 300000) { // 5 minutes (reduced from 1 hour to catch rapid duplicates)
-                          alreadyApplied = true;
-                          console.log(`[DEADLINE] Deadline penalty already applied for quiz ${quiz._id}, lesson ${lessonName} (${Math.round(timeDiff/1000)}s ago)`);
-                        }
-                      }
-                    }
-                  } catch (historyErr) {
-                    console.error('Error checking history for deadline penalty:', historyErr);
-                  }
-                  
-                  // Only calculate scoring if not already applied
-                  if (!alreadyApplied) {
-                    // Get previous percentage ONLY from online_quizzes (actual submissions)
-                    let previousPercentage = null;
-                    try {
-                      const studentResponseBefore = await apiClient.get(`/api/students/${profile.id}`);
-                      
-                      // Only check online_quizzes for previous result (actual quiz submission)
-                      if (studentResponseBefore.data && studentResponseBefore.data.online_quizzes) {
-                        const previousResult = studentResponseBefore.data.online_quizzes.find(
-                          oqz => {
-                            const qzIdStr = oqz.quiz_id ? String(oqz.quiz_id) : null;
-                            const targetIdStr = quiz._id.toString();
-                            return qzIdStr === targetIdStr;
-                          }
-                        );
-                        if (previousResult && previousResult.percentage) {
-                          // Extract percentage from "X%" format
-                          const prevPercentageStr = String(previousResult.percentage).replace('%', '');
-                          previousPercentage = parseInt(prevPercentageStr, 10);
-                        }
-                      }
-                    } catch (err) {
-                      console.error('Error getting previous percentage:', err);
-                    }
-                    
-                    // Get previous percentage from history (for this lesson) - this overrides online_quizzes
-                    let actualPreviousPercentage = previousPercentage;
-                    try {
-                      const historyResponse = await apiClient.post('/api/scoring/get-last-history', {
-                        studentId: profile.id,
-                        type: 'quiz',
-                        lesson: lessonName
-                      });
-                      
-                      if (historyResponse.data.found && historyResponse.data.history) {
-                        const lastHistory = historyResponse.data.history;
-                        if (lastHistory.data?.percentage !== undefined) {
-                          actualPreviousPercentage = lastHistory.data.percentage;
-                        }
-                      }
-                    } catch (historyErr) {
-                      console.error('Error getting quiz history, using provided previousPercentage:', historyErr);
-                    }
-                    
-                    console.log(`[DEADLINE] Previous percentage: ${actualPreviousPercentage}`);
-                    
-                    // If previousPercentage is null (no previous submission), it will just apply -25
-                    // If previousPercentage exists, it will reverse those points and apply -25
-                    try {
-                      const scoringResponse = await apiClient.post('/api/scoring/calculate', {
-                        studentId: profile.id,
-                        type: 'quiz',
-                        lesson: lessonName,
-                        source: {
-                          kind: 'deadline_quiz',
-                          id: quiz._id.toString(),
-                          label: lessonName,
-                        },
-                        data: { percentage: 0, previousPercentage: actualPreviousPercentage }
-                      });
-                      console.log(`[DEADLINE] Scoring response:`, scoringResponse.data);
-                    } catch (scoreErr) {
-                      console.error('Error calculating quiz score:', scoreErr);
-                      // Remove from ref if scoring failed so it can be retried
-                      deadlinePenaltiesAppliedRef.current.delete(deadlineKey);
-                    }
-                  } else {
-                    console.log(`[DEADLINE] Skipping scoring calculation - already applied recently`);
-                  }
-                } else {
-                  console.log(`[DEADLINE] Scoring system is disabled - skipping score calculation`);
-                }
-                
-                // Refetch student data to update state
-                queryClient.invalidateQueries(['profile']);
-              } catch (err) {
-                console.error('Error updating student lessons:', err);
-                // Remove from ref if update failed so it can be retried
-                deadlinePenaltiesAppliedRef.current.delete(deadlineKey);
-              }
-            }
-          }
+          continue;
         }
+
+        if (!isDeadlinePassedEgypt(quiz.deadline_date, quiz.deadline_time)) {
+          continue;
+        }
+
+        try {
+          await apiClient.post('/api/scoring/apply-deadline', {
+            studentId: profile.id,
+            kind: 'quiz',
+            itemId: quiz._id.toString(),
+            lesson: quiz.lesson.trim(),
+          });
+          profileInvalidated = true;
+        } catch (err) {
+          console.error(`[DEADLINE] Quiz ${quiz._id} apply-deadline failed:`, err);
+        }
+      }
+
+      if (profileInvalidated) {
+        queryClient.invalidateQueries(['profile']);
       }
     };
 
     checkDeadlines();
-  }, [profile?.id, profile?.lessons, centerFilteredQuizzes, completedQuizzes, isScoringEnabled, queryClient, deadlineClockTick]);
+  }, [profile?.id, profile?.lessons, centerFilteredQuizzes, completedQuizzes, queryClient, deadlineClockTick]);
 
   if (isLoading) {
     return (

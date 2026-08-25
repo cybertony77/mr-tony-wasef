@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/router";
 import Image from 'next/image';
 import dynamic from 'next/dynamic';
@@ -361,194 +361,47 @@ export default function MyHomeworks() {
     return null;
   };
 
-  // Track if we've loaded student weeks data at least once
-  // Track which homeworks have already had deadline penalties applied (to prevent duplicate scoring)
-  const deadlinePenaltiesAppliedRef = useRef(new Set());
-  
-  // After deadline: if the student never completed this homework online, set lesson hwDone to false (API creates lesson if missing).
+  // After deadline: mark missed homework + apply scoring (server-side idempotent).
   useEffect(() => {
     if (!profile?.id || centerFilteredHomeworks.length === 0) return;
-    // Allow the check to proceed even if lessons is undefined - we'll treat it as empty object
-    // The API will create the lesson if it doesn't exist
 
     const checkDeadlines = async () => {
+      let profileInvalidated = false;
+
       for (const homework of centerFilteredHomeworks) {
-        // Only check if homework has deadline and is not completed
         if (
-          homework.deadline_type === 'with_deadline' &&
-          homework.deadline_date &&
-          !completedHomeworks.has(homework._id) &&
-          homework.lesson &&
-          homework.lesson.trim()
+          homework.deadline_type !== 'with_deadline' ||
+          !homework.deadline_date ||
+          completedHomeworks.has(homework._id) ||
+          !homework.lesson?.trim()
         ) {
-          if (isDeadlinePassedEgypt(homework.deadline_date, homework.deadline_time)) {
-            const lessonName = homework.lesson.trim();
-            // Check current lesson data to see if we need to update
-            let lessonData = profile?.lessons?.[lessonName];
-            
-            const deadlineKey = `homework_${homework._id}_lesson_${lessonName}`;
-            // Skip if the student already completed the homework (hwDone === true)
-            const alreadyDone = lessonData?.hwDone === true;
-            const shouldApplyDeadlineUpdate =
-              !deadlinePenaltiesAppliedRef.current.has(deadlineKey) && !alreadyDone;
-            
-            if (shouldApplyDeadlineUpdate) {
-              // Check ref FIRST to prevent duplicate calls - this is the primary guard
-              if (deadlinePenaltiesAppliedRef.current.has(deadlineKey)) {
-                console.log(`[DEADLINE] Already processing deadline penalty for homework ${homework._id}, lesson ${lessonName} - skipping`);
-                continue;
-              }
-              
-              // Mark as applied IMMEDIATELY to prevent duplicate calls
-              deadlinePenaltiesAppliedRef.current.add(deadlineKey);
-              
-              try {
-                console.log(`[DEADLINE] Processing deadline penalty for homework ${homework._id}, lesson ${lessonName}`);
-                
-                // Ensure lesson exists - if not, create it with default schema BEFORE applying penalty
-                if (!lessonData) {
-                  try {
-                    console.log(`[DEADLINE] Creating lesson "${lessonName}" for student ${profile.id}`);
-                    // Create lesson with default schema by calling the API
-                    // The API will create the lesson if it doesn't exist
-                    await apiClient.post(`/api/students/${profile.id}/hw`, {
-                      lesson: lessonName,
-                      hwDone: false
-                    });
-                    // Refresh profile to get the newly created lesson
-                    const profileResponse = await apiClient.get('/api/auth/me');
-                    if (profileResponse.data && profileResponse.data.lessons) {
-                      lessonData = profileResponse.data.lessons[lessonName];
-                      // Update profile state to reflect the new lesson
-                      queryClient.setQueryData(['profile'], (old) => ({
-                        ...old,
-                        lessons: profileResponse.data.lessons
-                      }));
-                    }
-                    console.log(`[DEADLINE] Lesson "${lessonName}" created successfully`);
-                  } catch (createErr) {
-                    console.error(`[DEADLINE] Error creating lesson ${lessonName}:`, createErr);
-                    // Remove from ref if creation failed so it can be retried
-                    deadlinePenaltiesAppliedRef.current.delete(deadlineKey);
-                    continue;
-                  }
-                }
-                
-                console.log(`[DEADLINE] Setting hwDone to false for homework ${homework._id}, lesson ${lessonName}`);
-                
-                // Update hwDone to false (always apply this, regardless of scoring system)
-                try {
-                  console.log(`[DEADLINE] Calling API to update hwDone for lesson "${lessonName}"`);
-                  const updateResponse = await apiClient.post(`/api/students/${profile.id}/hw`, {
-                    lesson: lessonName,
-                    hwDone: false
-                  });
-                  console.log(`[DEADLINE] API response:`, updateResponse.data);
-                  
-                  // Refresh profile after update
-                  await queryClient.invalidateQueries(['profile']);
-                  console.log(`[DEADLINE] Successfully updated hwDone in database for lesson "${lessonName}"`);
-                } catch (updateErr) {
-                  console.error(`[DEADLINE] Error updating hwDone for lesson ${lessonName}:`, updateErr);
-                  // Remove from ref if update failed so it can be retried
-                  deadlinePenaltiesAppliedRef.current.delete(deadlineKey);
-                  continue;
-                }
-                
-                // Recalculate score with hwDone: false rule (ONLY if scoring is enabled)
-                if (isScoringEnabled) {
-                  // Check history to see if deadline penalty was already applied
-                  let alreadyApplied = false;
-                  try {
-                    const historyResponse = await apiClient.post('/api/scoring/get-last-history', {
-                      studentId: profile.id,
-                      type: 'homework',
-                      lesson: lessonName
-                    });
-                    
-                    if (historyResponse.data.found && historyResponse.data.history) {
-                      const lastHistory = historyResponse.data.history;
-                      // Check if this is a deadline penalty (hwDone: false) for this lesson
-                      if (lastHistory.data?.hwDone === false && lastHistory.process_lesson === lessonName) {
-                        // Check if it was applied recently (within last 5 minutes) to avoid duplicates
-                        const historyTime = new Date(lastHistory.timestamp);
-                        const now = new Date();
-                        const timeDiff = now - historyTime;
-                        if (timeDiff < 300000) { // 5 minutes (reduced from 1 hour to catch rapid duplicates)
-                          alreadyApplied = true;
-                          console.log(`[DEADLINE] Deadline penalty already applied for homework ${homework._id}, lesson ${lessonName} (${Math.round(timeDiff/1000)}s ago)`);
-                        }
-                      }
-                    }
-                  } catch (historyErr) {
-                    console.error('Error checking history for deadline penalty:', historyErr);
-                  }
-                  
-                  // Only calculate scoring if not already applied
-                  if (!alreadyApplied) {
-                    // Get previous homework state from history
-                    let previousHwDone = null;
-                    try {
-                      const historyResponse = await apiClient.post('/api/scoring/get-last-history', {
-                        studentId: profile.id,
-                        type: 'homework',
-                        lesson: lessonName
-                      });
-                      
-                      if (historyResponse.data.found && historyResponse.data.history) {
-                        const lastHistory = historyResponse.data.history;
-                        if (lastHistory.data?.hwDone !== undefined) {
-                          previousHwDone = lastHistory.data.hwDone;
-                        }
-                      }
-                    } catch (historyErr) {
-                      console.error('Error getting homework history for deadline:', historyErr);
-                    }
-                    
-                    // Recalculate score with hwDone: false rule
-                    try {
-                      await apiClient.post('/api/scoring/calculate', {
-                        studentId: profile.id,
-                        type: 'homework',
-                        lesson: lessonName,
-                        source: {
-                          kind: 'deadline_homework',
-                          id: homework._id.toString(),
-                          label: lessonName,
-                        },
-                        data: { 
-                          hwDone: false,
-                          previousHwDone: previousHwDone
-                        }
-                      });
-                      console.log(`[DEADLINE] Score recalculated for homework deadline penalty`);
-                    } catch (scoreErr) {
-                      console.error('Error calculating score for deadline penalty:', scoreErr);
-                      // Remove from ref if scoring failed so it can be retried
-                      deadlinePenaltiesAppliedRef.current.delete(deadlineKey);
-                    }
-                  } else {
-                    console.log(`[DEADLINE] Skipping scoring calculation - already applied recently`);
-                  }
-                } else {
-                  console.log(`[DEADLINE] Scoring system is disabled - skipping score calculation`);
-                }
-                
-                // Refetch student data to update state
-                queryClient.invalidateQueries(['profile']);
-              } catch (err) {
-                console.error('Error updating student lessons:', err);
-                // Remove from ref if update failed so it can be retried
-                deadlinePenaltiesAppliedRef.current.delete(deadlineKey);
-              }
-            }
-          }
+          continue;
         }
+
+        if (!isDeadlinePassedEgypt(homework.deadline_date, homework.deadline_time)) {
+          continue;
+        }
+
+        try {
+          await apiClient.post('/api/scoring/apply-deadline', {
+            studentId: profile.id,
+            kind: 'homework',
+            itemId: homework._id.toString(),
+            lesson: homework.lesson.trim(),
+          });
+          profileInvalidated = true;
+        } catch (err) {
+          console.error(`[DEADLINE] Homework ${homework._id} apply-deadline failed:`, err);
+        }
+      }
+
+      if (profileInvalidated) {
+        queryClient.invalidateQueries(['profile']);
       }
     };
 
     checkDeadlines();
-  }, [profile?.id, profile?.lessons, centerFilteredHomeworks, completedHomeworks, isScoringEnabled, queryClient, deadlineClockTick]);
+  }, [profile?.id, profile?.lessons, centerFilteredHomeworks, completedHomeworks, queryClient, deadlineClockTick]);
 
   if (isLoading) {
     return (

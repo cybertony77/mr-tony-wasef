@@ -682,7 +682,7 @@ async function findCompatibilityFallbackHistory(db, { studentId, type, lesson, s
   return history[0];
 }
 
-async function ensureHistoryIndexes(db) {
+export async function ensureHistoryIndexes(db) {
   try {
     await db.collection('scoring_system_history').createIndex(
       { student_id: 1, type: 1, source_key: 1, timestamp: -1 },
@@ -802,11 +802,7 @@ export async function applyScoringEvent({
           currentResult = { reversed: true, previousPercentage: data?.previousPercentage ?? null };
         }
       } else if (!data?.reverseOnly) {
-        if (data?.hwDone === false && (previousState == null && data?.previousHwDone == null)) {
-          currentBaseContribution = 0;
-        } else {
-          currentBaseContribution = await evaluateRule(zenRule, { hwDone: data?.hwDone });
-        }
+        currentBaseContribution = await evaluateRule(zenRule, { hwDone: data?.hwDone });
         currentResult = { hwDone: data?.hwDone ?? null };
       } else {
         currentResult = { reversed: true, previousHwDone: data?.previousHwDone ?? null };
@@ -838,6 +834,55 @@ export async function applyScoringEvent({
 
     const desiredTotalContribution = currentBaseContribution + currentBonusContribution;
     const requestedDelta = desiredTotalContribution - previousAwardedTotal;
+
+    const isDeadlineSource =
+      source.sourceKind === 'deadline_homework' || source.sourceKind === 'deadline_quiz';
+
+    // Deadline events are one-shot: never re-score after state exists (revisits, rule changes).
+    if (!data?.reverseOnly && previousState != null && isDeadlineSource) {
+      return {
+        success: true,
+        idempotentNoOp: true,
+        processId: null,
+        processName: previousState.process_name || processName,
+        pointsAdded: 0,
+        requestedDelta: 0,
+        basePoints: Number(previousState.current_deserved_base_points ?? currentBaseContribution),
+        bonusPoints: Number(previousState.current_deserved_bonus_points ?? currentBonusContribution),
+        previousScore: Number(freshStudent.score || 0),
+        newScore: Number(freshStudent.score || 0),
+        previousAwardedContribution: previousAwardedTotal,
+        currentContribution: previousAwardedTotal,
+        actualAppliedDelta: 0,
+        awardedTotalAfterProcess: previousAwardedTotal,
+        sourceKey: source.sourceKey,
+      };
+    }
+
+    // Idempotent no-op: exact deadline/source already scored at this contribution.
+    if (
+      !data?.reverseOnly &&
+      previousState != null &&
+      requestedDelta === 0
+    ) {
+      return {
+        success: true,
+        idempotentNoOp: true,
+        processId: null,
+        processName: previousState.process_name || processName,
+        pointsAdded: 0,
+        requestedDelta: 0,
+        basePoints: currentBaseContribution,
+        bonusPoints: currentBonusContribution,
+        previousScore: Number(freshStudent.score || 0),
+        newScore: Number(freshStudent.score || 0),
+        previousAwardedContribution: previousAwardedTotal,
+        currentContribution: desiredTotalContribution,
+        actualAppliedDelta: 0,
+        awardedTotalAfterProcess: previousAwardedTotal,
+        sourceKey: source.sourceKey,
+      };
+    }
 
     const currentScore = Number(freshStudent.score || 0);
     const desiredScore = currentScore + requestedDelta;

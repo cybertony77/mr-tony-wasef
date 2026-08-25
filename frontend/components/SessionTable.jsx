@@ -33,7 +33,8 @@ export function SessionTable({
   onScoreUpdate,
   showStatsColumns = false,
   showHomeworkVideo = false,
-  showOppositeTotals = false
+  showOppositeTotals = false,
+  compactOnMobile = false
 }) {
   const isNational = useNationalSystem();
   const courseLabels = getCourseFieldLabels(isNational);
@@ -41,6 +42,7 @@ export function SessionTable({
   const effectiveShowGrade = showGrade && courseLabels.showGradeField;
   const [scrolled, setScrolled] = useState(false);
   const [needsScroll, setNeedsScroll] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const tableRef = useRef(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [detailsTitle, setDetailsTitle] = useState('');
@@ -95,6 +97,15 @@ export function SessionTable({
   useEffect(() => {
     setNeedsScroll(data.length > 0);
   }, [data]);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth <= 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  const isCompact = compactOnMobile && isMobile;
 
   // Handle WhatsApp message sent - database handles the state now
   const handleMessageSent = (studentId, sent) => {
@@ -560,7 +571,10 @@ export function SessionTable({
   );
 
   return (
-    <div style={{ height: tableHeight, overflow: 'hidden', width: '100%', position: 'relative' }}>
+    <div
+      className={isCompact ? classes.compactRoot : undefined}
+      style={{ height: tableHeight, overflow: 'hidden', width: '100%', position: 'relative' }}
+    >
       <Modal
         opened={detailsOpen}
         onClose={() => setDetailsOpen(false)}

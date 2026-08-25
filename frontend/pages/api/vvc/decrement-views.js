@@ -2,6 +2,7 @@ import { MongoClient, ObjectId } from 'mongodb';
 import fs from 'fs';
 import path from 'path';
 import { authMiddleware } from '../../../lib/authMiddleware';
+import { CODE_ERROR, codeErrorPayload } from '../../../lib/verificationCodeMessages';
 
 function loadEnvConfig() {
   try {
@@ -75,11 +76,9 @@ export default async function handler(req, res) {
     const codeSettings = vvcRecord.code_settings || 'number_of_views';
     if (codeSettings === 'number_of_views') {
       if (vvcRecord.number_of_views <= 0) {
-        return res.status(200).json({ 
-          success: false,
-          error: '❌ Sorry, this code has no views remaining',
-          valid: false 
-        });
+        return res.status(200).json(codeErrorPayload('vvc', CODE_ERROR.NO_VIEWS_REMAINING, {
+          code_settings: 'number_of_views',
+        }));
       }
 
       // Decrement number_of_views
@@ -89,10 +88,7 @@ export default async function handler(req, res) {
       );
 
       if (result.modifiedCount === 0) {
-        return res.status(500).json({ 
-          success: false,
-          error: 'Failed to decrement views'
-        });
+        return res.status(500).json(codeErrorPayload('vvc', CODE_ERROR.DECREMENT_FAILED));
       }
 
       // Get updated VVC
@@ -112,11 +108,7 @@ export default async function handler(req, res) {
     }
   } catch (error) {
     console.error('❌ Error in VVC decrement views API:', error);
-    return res.status(500).json({ 
-      success: false,
-      error: 'Internal server error', 
-      details: error.message 
-    });
+    return res.status(500).json(codeErrorPayload('vvc', CODE_ERROR.INTERNAL_ERROR));
   } finally {
     if (client) {
       await client.close();

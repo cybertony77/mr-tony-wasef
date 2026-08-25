@@ -53,6 +53,14 @@ const NATIONAL_SYSTEM = envConfig.NATIONAL_SYSTEM === 'true' || process.env.NATI
 console.log('🔗 Final MONGO_URI being used:', MONGO_URI.replace(/:[^:@]*@/, ':****@'));
 console.log('🔗 Final DB_NAME being used:', DB_NAME);
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function exactMatchRegex(value) {
+  return new RegExp(`^${escapeRegExp(value)}$`, 'i');
+}
+
 // Auth middleware is now imported from shared utility
 
 export default async function handler(req, res) {
@@ -207,23 +215,23 @@ export default async function handler(req, res) {
         }
         
         if (gradeFilter) {
-          queryFilter.grade = { $regex: new RegExp(`^${gradeFilter}$`, 'i') };
+          queryFilter.grade = { $regex: exactMatchRegex(gradeFilter) };
         }
         
         if (courseFilter) {
-          queryFilter.course = { $regex: new RegExp(`^${courseFilter}$`, 'i') };
+          queryFilter.course = { $regex: exactMatchRegex(courseFilter) };
         }
         
         if (centerFilter) {
-          queryFilter.main_center = { $regex: new RegExp(`^${centerFilter}$`, 'i') };
+          queryFilter.main_center = { $regex: exactMatchRegex(centerFilter) };
         }
         
         if (courseTypeFilter) {
-          queryFilter.courseType = { $regex: new RegExp(`^${courseTypeFilter}$`, 'i') };
+          queryFilter.courseType = { $regex: exactMatchRegex(courseTypeFilter) };
         }
         
         if (genderFilter) {
-          queryFilter.gender = { $regex: new RegExp(`^${genderFilter}$`, 'i') };
+          queryFilter.gender = { $regex: exactMatchRegex(genderFilter) };
         }
         
         console.log('🔍 Query filter:', JSON.stringify(queryFilter, null, 2));

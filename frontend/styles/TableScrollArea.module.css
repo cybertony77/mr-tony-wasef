@@ -8,4 +8,16 @@
 .scrolled {
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.compactRoot {
+  zoom: 0.74;
+}
+
+@supports not (zoom: 1) {
+  .compactRoot {
+    transform: scale(0.74);
+    transform-origin: top left;
+    width: 135.14%;
+  }
 } 

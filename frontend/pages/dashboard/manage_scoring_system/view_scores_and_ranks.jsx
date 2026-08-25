@@ -372,9 +372,9 @@ export default function ViewScores() {
                 offsetScrollbars
               >
                 <Table
-                  miw={courseLabels.showCourseType ? 1280 : 1160}
-                  verticalSpacing="sm"
-                  horizontalSpacing="md"
+                  miw={isMobile ? (courseLabels.showCourseType ? 940 : 840) : (courseLabels.showCourseType ? 1280 : 1160)}
+                  verticalSpacing={isMobile ? 'xs' : 'sm'}
+                  horizontalSpacing={isMobile ? 'xs' : 'md'}
                   highlightOnHover
                   striped
                   withTableBorder={false}
@@ -382,62 +382,63 @@ export default function ViewScores() {
                 >
                   <Table.Thead className={cx(classes.header, { [classes.scrolled]: scrolled })}>
                     <Table.Tr>
-                      <Table.Th style={{ minWidth: 70, textAlign: 'center' }}>ID</Table.Th>
-                      <Table.Th style={{ minWidth: 140, textAlign: 'center' }}>Name</Table.Th>
-                      <Table.Th style={{ minWidth: 90, textAlign: 'center' }}>Gender</Table.Th>
-                      <Table.Th style={{ minWidth: 90, textAlign: 'center' }}>Grade</Table.Th>
-                      <Table.Th style={{ minWidth: 110, textAlign: 'center' }}>{courseLabels.course}</Table.Th>
+                      <Table.Th style={{ minWidth: isMobile ? 44 : 70, textAlign: 'center', fontSize: isMobile ? 11 : undefined }}>ID</Table.Th>
+                      <Table.Th style={{ minWidth: isMobile ? 72 : 140, textAlign: 'center', fontSize: isMobile ? 11 : undefined }}>Name</Table.Th>
+                      <Table.Th style={{ minWidth: isMobile ? 52 : 90, textAlign: 'center', fontSize: isMobile ? 11 : undefined }}>Gender</Table.Th>
+                      <Table.Th style={{ minWidth: isMobile ? 52 : 90, textAlign: 'center', fontSize: isMobile ? 11 : undefined }}>Grade</Table.Th>
+                      <Table.Th style={{ minWidth: isMobile ? 56 : 110, textAlign: 'center', fontSize: isMobile ? 11 : undefined }}>{courseLabels.course}</Table.Th>
                       {courseLabels.showCourseType && (
-                        <Table.Th style={{ minWidth: 110, textAlign: 'center' }}>Course Type</Table.Th>
+                        <Table.Th style={{ minWidth: isMobile ? 56 : 110, textAlign: 'center', fontSize: isMobile ? 11 : undefined }}>Type</Table.Th>
                       )}
-                      <Table.Th style={{ minWidth: 140, textAlign: 'center' }}>School</Table.Th>
-                      <Table.Th style={{ minWidth: 120, textAlign: 'center' }}>Main Center</Table.Th>
-                      <Table.Th style={{ minWidth: 90, textAlign: 'center' }}>Score</Table.Th>
-                      <Table.Th style={{ minWidth: 140, textAlign: 'center' }}>Rank (Main Center)</Table.Th>
-                      <Table.Th style={{ minWidth: 140, textAlign: 'center' }}>Rank ({courseLabels.course})</Table.Th>
+                      <Table.Th style={{ minWidth: isMobile ? 64 : 140, textAlign: 'center', fontSize: isMobile ? 11 : undefined }}>School</Table.Th>
+                      <Table.Th style={{ minWidth: isMobile ? 64 : 120, textAlign: 'center', fontSize: isMobile ? 11 : undefined }}>Center</Table.Th>
+                      <Table.Th style={{ minWidth: isMobile ? 44 : 90, textAlign: 'center', fontSize: isMobile ? 11 : undefined }}>Score</Table.Th>
+                      <Table.Th style={{ minWidth: isMobile ? 72 : 140, textAlign: 'center', fontSize: isMobile ? 11 : undefined }}>Rank (Center)</Table.Th>
+                      <Table.Th style={{ minWidth: isMobile ? 72 : 140, textAlign: 'center', fontSize: isMobile ? 11 : undefined }}>Rank ({courseLabels.course})</Table.Th>
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
                     {students.map((student, idx) => {
                       const score = student.score !== null && student.score !== undefined ? student.score : 0;
+                      const cellFont = isMobile ? 11 : 15;
                       return (
                         <Table.Tr key={student.id || idx}>
-                          <Table.Td style={{ textAlign: 'center', fontSize: 15 }}>{student.id}</Table.Td>
-                          <Table.Td style={{ textAlign: 'center', fontSize: 15, fontWeight: 500 }}>
+                          <Table.Td style={{ textAlign: 'center', fontSize: cellFont }}>{student.id}</Table.Td>
+                          <Table.Td style={{ textAlign: 'center', fontSize: cellFont, fontWeight: 500 }}>
                             {student.name || '-'}
                           </Table.Td>
-                          <Table.Td style={{ textAlign: 'center', fontSize: 15 }}>{student.gender || '-'}</Table.Td>
-                          <Table.Td style={{ textAlign: 'center', fontSize: 15 }}>{student.grade || '-'}</Table.Td>
-                          <Table.Td style={{ textAlign: 'center', fontSize: 15 }}>
+                          <Table.Td style={{ textAlign: 'center', fontSize: cellFont }}>{student.gender || '-'}</Table.Td>
+                          <Table.Td style={{ textAlign: 'center', fontSize: cellFont }}>{student.grade || '-'}</Table.Td>
+                          <Table.Td style={{ textAlign: 'center', fontSize: cellFont }}>
                             {student.course || student.grade || '-'}
                           </Table.Td>
                           {courseLabels.showCourseType && (
-                            <Table.Td style={{ textAlign: 'center', fontSize: 15 }}>
+                            <Table.Td style={{ textAlign: 'center', fontSize: cellFont }}>
                               {student.courseType || '-'}
                             </Table.Td>
                           )}
-                          <Table.Td style={{ textAlign: 'center', fontSize: 15 }}>{student.school || '-'}</Table.Td>
-                          <Table.Td style={{ textAlign: 'center', fontSize: 15 }}>
+                          <Table.Td style={{ textAlign: 'center', fontSize: cellFont }}>{student.school || '-'}</Table.Td>
+                          <Table.Td style={{ textAlign: 'center', fontSize: cellFont }}>
                             {student.main_center || '-'}
                           </Table.Td>
                           <Table.Td
                             style={{
                               textAlign: 'center',
-                              fontSize: 15,
+                              fontSize: cellFont,
                               fontWeight: 700,
                               color: getScoreColor(score),
                             }}
                           >
                             {score}
                           </Table.Td>
-                          <Table.Td style={{ textAlign: 'center', fontSize: 15 }}>
+                          <Table.Td style={{ textAlign: 'center', fontSize: cellFont }}>
                             {student.centerRank && student.centerTotal
-                              ? `${student.centerRank} / ${student.centerTotal}`
+                              ? `${student.centerRank}/${student.centerTotal}`
                               : '-'}
                           </Table.Td>
-                          <Table.Td style={{ textAlign: 'center', fontSize: 15 }}>
+                          <Table.Td style={{ textAlign: 'center', fontSize: cellFont }}>
                             {student.courseRank && student.courseTotal
-                              ? `${student.courseRank} / ${student.courseTotal}`
+                              ? `${student.courseRank}/${student.courseTotal}`
                               : '-'}
                           </Table.Td>
                         </Table.Tr>
@@ -700,12 +701,14 @@ export default function ViewScores() {
             }
             .history-container {
               padding: 16px;
+              overflow-x: hidden;
             }
             .history-title {
               font-size: 1.3rem;
             }
             .scores-table-wrap {
               border-radius: 10px;
+              zoom: 0.74;
             }
             .pagination-page-info {
               font-size: 1rem;
@@ -749,9 +752,13 @@ export default function ViewScores() {
             }
             .history-container {
               padding: 12px;
+              overflow-x: hidden;
             }
             .history-title {
               font-size: 1.1rem;
+            }
+            .scores-table-wrap {
+              zoom: 0.72;
             }
             .pagination-container {
               gap: 8px;
@@ -764,6 +771,23 @@ export default function ViewScores() {
               font-size: 0.9rem;
               min-width: 90px;
               padding: 6px 10px;
+            }
+          }
+
+          @supports not (zoom: 1) {
+            @media (max-width: 768px) {
+              .scores-table-wrap {
+                zoom: unset;
+                transform: scale(0.74);
+                transform-origin: top left;
+                width: 135.14%;
+              }
+            }
+            @media (max-width: 480px) {
+              .scores-table-wrap {
+                transform: scale(0.72);
+                width: 138.89%;
+              }
             }
           }
         `}</style>

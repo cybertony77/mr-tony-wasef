@@ -24,6 +24,12 @@ import {
 import { getStudentLesson } from '../../lib/studentLessons';
 import { isDeadlinePassedEgypt } from '../../lib/deadlineTimeEgypt';
 import { isCodeNumberOfDaysValid } from '../../lib/codeNumberOfDays';
+import CodePopupMessage from '../../components/CodePopupMessage';
+import {
+  CODE_ERROR,
+  getVerificationCodeMessage,
+  resolveVerificationCodeError,
+} from '../../lib/verificationCodeMessages';
 
 function unlockInfoFromVvcResponse(data) {
   if (!data) return null;
@@ -35,23 +41,6 @@ function unlockInfoFromVvcResponse(data) {
     access_started_at: data.access_started_at || null,
     deadline_date: data.deadline_date || null,
   };
-}
-
-function formatCodePopupMessage(msg) {
-  if (!msg) return '';
-  return String(msg).replace(/^❌\s*/, '').trim();
-}
-
-function CodePopupMessage({ message }) {
-  if (!message) return null;
-  return (
-    <div role="alert" className="code-popup-msg">
-      <span aria-hidden="true" className="code-popup-msg-icon">
-        !
-      </span>
-      <span className="code-popup-msg-text">{formatCodePopupMessage(message)}</span>
-    </div>
-  );
 }
 
 // Input with Button Component (matching manage online system style)
@@ -442,12 +431,12 @@ export default function OnlineSessions() {
   // Handle VVC submission
   const handleVVCSubmit = async () => {
     if (!vvc || vvc.length !== 9) {
-      setVvcError('❌ VVC code must be 9 characters');
+      setVvcError(getVerificationCodeMessage('vvc', CODE_ERROR.INVALID_LENGTH));
       return;
     }
 
     if (!pendingVideo) {
-      setVvcError('❌ No video pending');
+      setVvcError(getVerificationCodeMessage('vvc', CODE_ERROR.NO_VIDEO_PENDING));
       return;
     }
 
@@ -508,10 +497,10 @@ export default function OnlineSessions() {
         setPendingVideo(null);
         setVvc('');
       } else {
-        setVvcError(response.data.error || '❌ Invalid VVC code');
+        setVvcError(resolveVerificationCodeError('vvc', response.data));
       }
     } catch (err) {
-      setVvcError(err.response?.data?.error || '❌ Failed to verify VVC code');
+      setVvcError(resolveVerificationCodeError('vvc', err.response?.data || CODE_ERROR.VERIFY_FAILED));
     } finally {
       setIsCheckingVvc(false);
     }
@@ -560,7 +549,8 @@ export default function OnlineSessions() {
     } catch (err) {
       console.error('Failed to decrement VVC views:', err);
       vvcViewsDecrementDoneRef.current = false;
-      if (err.response?.data?.error?.includes('no views remaining')) {
+      if (err.response?.data?.error_code === CODE_ERROR.NO_VIEWS_REMAINING
+        || err.response?.data?.error?.includes('no views remaining')) {
         const sessionId = typeof v._id === 'string' ? v._id : v._id.toString();
         setUnlockedSessions((prev) => {
           const next = new Map(prev);
@@ -570,7 +560,7 @@ export default function OnlineSessions() {
         if (studentId) {
           queryClient.invalidateQueries({ queryKey: studentKeys.detail(studentId) });
         }
-        setVvcError('❌ Sorry, this code has no views remaining');
+        setVvcError(resolveVerificationCodeError('vvc', err.response?.data || CODE_ERROR.NO_VIEWS_REMAINING));
       }
     }
   }, [studentId, queryClient]);
@@ -760,7 +750,7 @@ export default function OnlineSessions() {
               return next;
             });
           } else {
-            setVvcError(syncRes.data?.error || '❌ Sorry, This code is expired');
+            setVvcError(resolveVerificationCodeError('vvc', syncRes.data));
             setUnlockedSessions((prev) => {
               const next = new Map(prev);
               next.delete(sessionId);
@@ -778,7 +768,10 @@ export default function OnlineSessions() {
         // Fixed deadline_date expiration (Africa/Cairo)
         if (unlockedInfo.code_settings === 'deadline_date' && unlockedInfo.deadline_date) {
           if (isDeadlinePassedEgypt(unlockedInfo.deadline_date, null)) {
-            setVvcError('❌ Sorry, This code is expired');
+            setVvcError(getVerificationCodeMessage('vvc', CODE_ERROR.DEADLINE_EXPIRED, {
+              code_settings: 'deadline_date',
+              deadline_date: unlockedInfo.deadline_date,
+            }));
             const newUnlocked = new Map(unlockedSessions);
             newUnlocked.delete(sessionId);
             setUnlockedSessions(newUnlocked);
@@ -817,7 +810,7 @@ export default function OnlineSessions() {
           setVvc('');
           setVvcError(
             err.response?.data?.require_vvc || err.response?.data?.expired
-              ? '❌ Free viewing ended. Enter a VVC code to continue.'
+              ? getVerificationCodeMessage('vvc', CODE_ERROR.FREE_VIEWING_ENDED)
               : ''
           );
           return;
@@ -889,7 +882,7 @@ export default function OnlineSessions() {
       setVvcError(
         FREE_ONLINE_SESSION_PAYMENT_STATES.includes(session.payment_state) &&
           isFreeViewingExpired(session, freeEntry)
-          ? '❌ Free viewing ended. Enter a VVC code to continue.'
+          ? getVerificationCodeMessage('vvc', CODE_ERROR.FREE_VIEWING_ENDED)
           : ''
       );
     }
