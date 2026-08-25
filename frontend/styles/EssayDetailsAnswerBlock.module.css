@@ -1,0 +1,143 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.studentCard {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 2px solid;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.studentCardCorrect {
+  border-color: #28a745;
+  background: #d4edda;
+  color: #155724;
+}
+
+.studentCardWrong {
+  border-color: #dc3545;
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.cardBody {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.cardContent {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.cardLabel {
+  font-weight: 700;
+  font-size: 0.9rem;
+  margin-bottom: 4px;
+}
+
+.cardValue {
+  font-size: 0.95rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+.validBlock {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(40, 167, 69, 0.28);
+  background: linear-gradient(135deg, rgba(240, 253, 244, 0.95), rgba(220, 252, 231, 0.65));
+  color: #14532d;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.validHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.validIcon {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(34, 197, 94, 0.16);
+  color: #16a34a;
+  border: 1px solid rgba(34, 197, 94, 0.25);
+}
+
+.validTitle {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: #166534;
+}
+
+.validList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.validItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(34, 197, 94, 0.18);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+
+.validDot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+}
+
+.validText {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #14532d;
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+@media (max-width: 560px) {
+  .studentCard,
+  .validBlock {
+    padding: 12px;
+  }
+
+  .validItem {
+    padding: 10px;
+  }
+
+  .cardValue,
+  .validText {
+    font-size: 0.92rem;
+  }
+}

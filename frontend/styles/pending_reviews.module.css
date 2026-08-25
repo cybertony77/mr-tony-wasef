@@ -1,0 +1,361 @@
+.page {
+  min-height: calc(100dvh - 8rem);
+  padding: 40px 20px 48px;
+}
+
+.wrap {
+  max-width: 860px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.card {
+  background: rgba(247, 244, 238, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 22px;
+  box-shadow:
+    0 18px 50px rgba(15, 40, 70, 0.14),
+    0 2px 0 rgba(255, 255, 255, 0.65) inset;
+  padding: 28px 26px 24px;
+  backdrop-filter: blur(10px);
+}
+
+.cardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--system-soft-accent);
+}
+
+.cardHeader h2 {
+  margin: 0;
+  color: var(--system-primary);
+  font-size: 1.55rem;
+  font-weight: 800;
+}
+
+.cardHeader p {
+  margin: 6px 0 0;
+  color: #6c7a89;
+  font-size: 0.95rem;
+}
+
+.backBtn {
+  padding: 12px 18px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #1FA8DC 0%, #0B8EC4 100%);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: 0 8px 20px rgba(31, 168, 220, 0.25);
+}
+
+.list {
+  display: grid;
+  gap: 18px;
+}
+
+.item {
+  background: linear-gradient(180deg, #ffffff 0%, var(--system-surface) 100%);
+  border: 1px solid var(--system-soft-accent);
+  border-radius: 16px;
+  padding: 22px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  box-shadow: 0 8px 24px rgba(26, 58, 82, 0.06);
+  animation: fadeUp 0.45s ease both;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 32px rgba(26, 58, 82, 0.1);
+}
+
+.itemMain {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+}
+
+.itemTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.itemTitle {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+  line-height: 1.4;
+}
+
+.itemName {
+  color: var(--system-primary);
+  font-size: 1.2rem;
+  font-weight: 800;
+}
+
+.itemCourse {
+  color: #0B8EC4;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.itemDot {
+  color: #94a3b8;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.itemCategory {
+  color: #5b6b7c;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.itemDateInline {
+  color: #94a3b8;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.itemTags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.pendingBadge {
+  display: inline-flex;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(255, 193, 7, 0.18), rgba(255, 152, 0, 0.16));
+  color: #b36b00;
+  border: 1px solid rgba(255, 152, 0, 0.35);
+  font-size: 0.82rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.itemText {
+  margin: 0 0 14px;
+  color: #2B2B2B;
+  font-size: 1rem;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.itemMetaRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.slugBadge {
+  display: inline-flex;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(31, 168, 220, 0.14), rgba(87, 194, 232, 0.18));
+  color: #0B8EC4;
+  border: 1px solid rgba(31, 168, 220, 0.3);
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.itemActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.approveBtn,
+.rejectBtn {
+  border: none;
+  border-radius: 10px;
+  padding: 11px 18px;
+  font-weight: 700;
+  color: #fff;
+  cursor: pointer;
+  font-family: inherit;
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+
+.approveBtn {
+  background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+  box-shadow: 0 8px 18px rgba(40, 167, 69, 0.25);
+}
+
+.rejectBtn {
+  background: linear-gradient(135deg, #dc3545 0%, #e74c3c 100%);
+  box-shadow: 0 8px 18px rgba(220, 53, 69, 0.25);
+}
+
+.approveBtn:hover:not(:disabled),
+.rejectBtn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(1.04);
+}
+
+.approveBtn:disabled,
+.rejectBtn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.empty {
+  text-align: center;
+  padding: 48px 16px;
+}
+
+.empty h3 {
+  margin: 0 0 10px;
+  color: #8A8A8A;
+}
+
+.empty p {
+  margin: 0;
+  color: #94a3b8;
+}
+
+.loadingBox {
+  text-align: center;
+  padding: 40px 16px;
+  color: #666;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #f3f3f3;
+  border-top: 2px solid #1FA8DC;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.alert {
+  border-radius: 10px;
+  padding: 16px;
+  margin-top: 20px;
+  font-weight: 600;
+  text-align: center;
+  color: #fff;
+}
+
+.alertError {
+  background: linear-gradient(135deg, #dc3545 0%, #e74c3c 100%);
+  box-shadow: 0 4px 16px rgba(220, 53, 69, 0.3);
+}
+
+.alertSuccess {
+  background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+  box-shadow: 0 4px 16px rgba(40, 167, 69, 0.3);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 768px) {
+  .page {
+    padding: 28px 12px 36px;
+  }
+
+  .card {
+    padding: 20px 14px 16px;
+  }
+
+  .cardHeader {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .backBtn {
+    width: 100%;
+  }
+
+  .item {
+    flex-direction: column;
+    padding: 16px 14px;
+    gap: 14px;
+  }
+
+  .itemTop {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .itemTitle {
+    width: 100%;
+  }
+
+  .itemName {
+    font-size: 1.1rem;
+  }
+
+  .itemCategory {
+    font-size: 0.95rem;
+  }
+
+  .itemDateInline {
+    font-size: 0.85rem;
+  }
+
+  .itemTags {
+    width: 100%;
+  }
+
+  .itemActions {
+    width: 100%;
+  }
+
+  .approveBtn,
+  .rejectBtn {
+    flex: 1;
+    min-width: 0;
+  }
+}

@@ -1,0 +1,237 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10055;
+  background: rgba(2, 6, 23, 0.45);
+  -webkit-backdrop-filter: blur(7px);
+  backdrop-filter: blur(7px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.modal {
+  position: relative;
+  width: min(980px, 95vw);
+  max-height: min(90vh, 860px);
+  border-radius: 16px;
+  background: linear-gradient(180deg, #0f172a 0%, #020617 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.4);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(15, 23, 42, 0.92);
+}
+
+.title {
+  color: #f8fafc;
+  font-weight: 700;
+  font-size: 1rem;
+  line-height: 1.25;
+  min-width: 0;
+}
+
+.closeBtn {
+  position: relative;
+  z-index: 2;
+  flex-shrink: 0;
+}
+
+.zoomHint {
+  text-align: center;
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.7);
+  padding: 6px 12px;
+  background: rgba(2, 6, 23, 0.6);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+  letter-spacing: 0.01em;
+}
+
+.viewport {
+  position: relative;
+  flex: 1;
+  min-height: 280px;
+  background: #020617;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.image {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  transition: opacity 0.18s ease;
+}
+
+.loader {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 1;
+}
+
+.loaderCard {
+  min-width: min(280px, 90%);
+  padding: 24px 20px;
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.92) 0%, rgba(2, 6, 23, 0.95) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 20px 48px rgba(2, 6, 23, 0.38);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.spinner {
+  position: relative;
+  width: 62px;
+  height: 62px;
+}
+
+.spinnerRing,
+.spinnerCore {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+}
+
+.spinnerRing {
+  border: 4px solid rgba(31, 168, 220, 0.18);
+  border-top-color: #1fa8dc;
+  animation: referenceSpin 0.9s linear infinite;
+}
+
+.spinnerCore {
+  inset: 14px;
+  background: radial-gradient(circle at 30% 30%, rgba(125, 211, 252, 0.95), rgba(14, 116, 144, 0.25));
+  box-shadow: 0 0 24px rgba(34, 211, 238, 0.18);
+}
+
+.loaderText {
+  color: #f8fafc;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.loaderSubtext {
+  color: rgba(226, 232, 240, 0.78);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+@keyframes referenceSpin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 768px) {
+  .overlay {
+    padding: 10px;
+  }
+
+  .modal {
+    width: min(96vw, 600px);
+    max-height: min(88vh, 760px);
+    border-radius: 14px;
+  }
+
+  .header {
+    padding: 10px 12px;
+  }
+
+  .title {
+    font-size: 0.94rem;
+  }
+
+  .closeBtn {
+    width: 38px;
+    height: 38px;
+    border-radius: 11px;
+  }
+
+  .viewport {
+    min-height: 200px;
+  }
+
+  .loaderCard {
+    min-width: min(240px, 92%);
+    padding: 20px 16px;
+    border-radius: 18px;
+  }
+}
+
+@media (max-width: 480px) {
+  .modal {
+    width: min(96vw, 420px);
+    max-height: min(88vh, 680px);
+    border-radius: 12px;
+  }
+
+  .header {
+    gap: 8px;
+    padding: 9px 10px;
+  }
+
+  .title {
+    font-size: 0.88rem;
+  }
+
+  .closeBtn {
+    width: 34px;
+    height: 34px;
+    font-size: 0.95rem;
+    border-radius: 10px;
+  }
+
+  .viewport {
+    min-height: 160px;
+  }
+
+  .zoomHint {
+    font-size: 0.7rem;
+    padding: 5px 10px;
+  }
+
+  .loaderCard {
+    padding: 18px 14px;
+    gap: 10px;
+  }
+
+  .spinner {
+    width: 54px;
+    height: 54px;
+  }
+
+  .loaderText {
+    font-size: 0.92rem;
+  }
+
+  .loaderSubtext {
+    font-size: 0.8rem;
+  }
+}

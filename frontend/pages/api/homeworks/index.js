@@ -1,0 +1,421 @@
+import { MongoClient, ObjectId } from 'mongodb';
+import fs from 'fs';
+import path from 'path';
+import { authMiddleware } from '../../../lib/authMiddleware';
+import { duplicateCenterMongoFragment } from '../../../lib/onlineItemDuplicate';
+import {
+  isDeadlineStrictlyInFutureEgypt,
+  normalizeDeadlineTimeField,
+  parseDeadlineTime,
+} from '../../../lib/deadlineTimeEgypt';
+import { validateOnlineQuestionPayload, serializeOnlineQuestionForDb } from '../../../lib/onlineQuestionApiNormalize';
+
+function loadEnvConfig() {
+  try {
+    const envPath = path.join(process.cwd(), '..', 'env.config');
+    const envContent = fs.readFileSync(envPath, 'utf8');
+    const envVars = {};
+    
+    envContent.split('\n').forEach(line => {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith('#')) {
+        const index = trimmed.indexOf('=');
+        if (index !== -1) {
+          const key = trimmed.substring(0, index).trim();
+          let value = trimmed.substring(index + 1).trim();
+          value = value.replace(/^"|"$/g, '');
+          envVars[key] = value;
+        }
+      }
+    });
+    
+    return envVars;
+  } catch (error) {
+    console.log('⚠️  Could not read env.config, using process.env as fallback');
+    return {};
+  }
+}
+
+const envConfig = loadEnvConfig();
+const MONGO_URI = envConfig.MONGO_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/topphysics';
+const DB_NAME = envConfig.DB_NAME || process.env.DB_NAME || 'mr-george-magdy';
+
+function normalizeQuestionPictures(question = {}) {
+  const pictures = [question.question_picture || null];
+  Object.keys(question)
+    .filter((key) => /^question_picture_\d+$/.test(key))
+    .sort((a, b) => Number(a.split('_').pop()) - Number(b.split('_').pop()))
+    .forEach((key) => {
+      const idx = Number(key.split('_').pop()) - 1;
+      if (idx >= 1) pictures[idx] = question[key] || null;
+    });
+
+  const normalized = { question_picture: pictures[0] || null };
+  for (let i = 1; i < pictures.length; i++) {
+    normalized[`question_picture_${i + 1}`] = pictures[i] || null;
+  }
+  return normalized;
+}
+
+export default async function handler(req, res) {
+  let client;
+  try {
+    // Verify authentication
+    const user = await authMiddleware(req);
+    
+    // Check if user has required role (admin, developer, or assistant)
+    if (!['admin', 'developer', 'assistant'].includes(user.role)) {
+      return res.status(403).json({ error: 'Forbidden: Access denied' });
+    }
+
+    client = await MongoClient.connect(MONGO_URI);
+    const db = client.db(DB_NAME);
+
+    if (req.method === 'GET') {
+      // Get all homeworks, sorted by course, then lesson, then date descending
+      const homeworks = await db.collection('homeworks')
+        .find({})
+        .sort({ course: 1, lesson: 1, date: -1 })
+        .toArray();
+      
+      return res.status(200).json({ success: true, homeworks });
+    }
+
+    if (req.method === 'POST') {
+      // Create new homework
+      const { lesson_name, timer, questions, lesson, course, courseType, center, homework_type, deadline_type, deadline_date, deadline_time, book_name, from_page, to_page, shuffle_questions_and_answers, show_details_after_submitting, comment, pdf_file_name, pdf_url, state, allow_downloading } = req.body;
+
+      if (!lesson_name || lesson_name.trim() === '') {
+        return res.status(400).json({ error: '❌ Lesson name is required' });
+      }
+
+      if (!course || course.trim() === '') {
+        return res.status(400).json({ error: '❌ Course is required' });
+      }
+
+      if (!lesson || lesson.trim() === '') {
+        return res.status(400).json({ error: '❌ Lesson is required' });
+      }
+
+      if (!homework_type || !['questions', 'pages_from_book', 'pdf'].includes(homework_type)) {
+        return res.status(400).json({ error: '❌ Homework type must be "questions", "pages_from_book", or "pdf"' });
+      }
+
+      // Validate based on homework type
+      if (homework_type === 'pdf') {
+        if (!pdf_file_name || pdf_file_name.trim() === '') {
+          return res.status(400).json({ error: '❌ PDF file name is required' });
+        }
+        if (!pdf_url || pdf_url.trim() === '') {
+          return res.status(400).json({ error: '❌ PDF file is required' });
+        }
+      } else if (homework_type === 'pages_from_book') {
+        if (!book_name || book_name.trim() === '') {
+          return res.status(400).json({ error: '❌ Book name is required' });
+        }
+        if (!from_page || parseInt(from_page) < 1) {
+          return res.status(400).json({ error: '❌ From page must be at least 1' });
+        }
+        if (!to_page || parseInt(to_page) < 1) {
+          return res.status(400).json({ error: '❌ To page must be at least 1' });
+        }
+        if (parseInt(from_page) > parseInt(to_page)) {
+          return res.status(400).json({ error: '❌ To page must be greater than or equal to from page' });
+        }
+      } else if (homework_type === 'questions') {
+        if (!Array.isArray(questions) || questions.length === 0) {
+          return res.status(400).json({ error: '❌ At least one question is required' });
+        }
+
+        // Validate questions
+        for (let i = 0; i < questions.length; i++) {
+          const validationError = validateOnlineQuestionPayload(questions[i], i);
+          if (validationError) {
+            return res.status(400).json({ error: validationError });
+          }
+        }
+      }
+
+      if (deadline_type === 'with_deadline') {
+        if (!deadline_date) {
+          return res.status(400).json({ error: '❌ Deadline date is required' });
+        }
+        const rawT = deadline_time != null && String(deadline_time).trim() !== '' ? String(deadline_time).trim() : '';
+        if (rawT && !parseDeadlineTime(rawT)) {
+          return res.status(400).json({ error: '❌ Invalid deadline time (use format like 04:30 AM)' });
+        }
+        const normTime = normalizeDeadlineTimeField(deadline_type, deadline_time);
+        if (!isDeadlineStrictlyInFutureEgypt(deadline_date, normTime)) {
+          return res.status(400).json({ error: '❌ Deadline must be in the future (Egypt time)' });
+        }
+      }
+
+      // Validate course, courseType, and lesson combination uniqueness
+      const courseTrimmed = course.trim();
+      const courseTypeTrimmed = courseType ? courseType.trim() : '';
+      const lessonTrimmed = lesson.trim();
+      const centerTrimmed = center && String(center).trim() !== '' ? String(center).trim() : null;
+      
+      const existingHomework = await db.collection('homeworks').findOne({
+        course: courseTrimmed,
+        courseType: courseTypeTrimmed || null,
+        lesson: lessonTrimmed,
+        ...duplicateCenterMongoFragment(centerTrimmed),
+      });
+      if (existingHomework) {
+        return res.status(400).json({
+          error: `❌ A homework with this course, course type, lesson, and center already exists.`,
+        });
+      }
+
+      // Normalize homework state (default to "Activated")
+      let finalState = 'Activated';
+      if (state === 'Activated' || state === 'Deactivated') {
+        finalState = state;
+      }
+
+      const normDeadlineTime = normalizeDeadlineTimeField(deadline_type || 'no_deadline', deadline_time);
+
+      const homework = {
+        course: courseTrimmed,
+        courseType: courseTypeTrimmed || null,
+        center: centerTrimmed,
+        lesson: lessonTrimmed,
+        lesson_name: lesson_name.trim(),
+        homework_type: homework_type,
+        deadline_type: deadline_type || 'no_deadline',
+        deadline_date: deadline_type === 'with_deadline' ? deadline_date : null,
+        deadline_time: deadline_type === 'with_deadline' ? normDeadlineTime : null,
+        timer: homework_type === 'questions' && timer !== null && timer !== undefined ? parseInt(timer) : null,
+        shuffle_questions_and_answers: homework_type === 'questions' ? (shuffle_questions_and_answers === true || shuffle_questions_and_answers === 'true') : false,
+        show_details_after_submitting: homework_type === 'questions' ? (show_details_after_submitting === true || show_details_after_submitting === 'true') : false,
+        comment: comment && comment.trim() !== '' ? comment.trim() : null,
+        state: finalState
+      };
+
+      if (homework_type === 'pdf') {
+        homework.pdf_file_name = pdf_file_name.trim();
+        homework.pdf_url = pdf_url.trim();
+        homework.allow_downloading = allow_downloading === false || allow_downloading === 'false' ? false : true;
+      } else if (homework_type === 'pages_from_book') {
+        homework.book_name = book_name.trim();
+        homework.from_page = parseInt(from_page);
+        homework.to_page = parseInt(to_page);
+      } else if (homework_type === 'questions') {
+        homework.questions = questions.map(q => serializeOnlineQuestionForDb(q, normalizeQuestionPictures));
+      }
+
+      const result = await db.collection('homeworks').insertOne(homework);
+      
+      return res.status(201).json({ 
+        success: true, 
+        message: 'Homework created successfully',
+        homework: { ...homework, _id: result.insertedId }
+      });
+    }
+
+    if (req.method === 'PUT') {
+      // Update homework
+      const { id } = req.query;
+      const { lesson_name, timer, questions, lesson, course, courseType, center, homework_type, deadline_type, deadline_date, deadline_time, book_name, from_page, to_page, shuffle_questions_and_answers, show_details_after_submitting, comment, pdf_file_name, pdf_url, state, allow_downloading } = req.body;
+
+      if (!id) {
+        return res.status(400).json({ error: '❌ Homework ID is required' });
+      }
+
+      if (!course || course.trim() === '') {
+        return res.status(400).json({ error: '❌ Course is required' });
+      }
+
+      if (!lesson || lesson.trim() === '') {
+        return res.status(400).json({ error: '❌ Lesson is required' });
+      }
+
+      if (!lesson_name || lesson_name.trim() === '') {
+        return res.status(400).json({ error: '❌ Lesson name is required' });
+      }
+
+      if (!homework_type || !['questions', 'pages_from_book', 'pdf'].includes(homework_type)) {
+        return res.status(400).json({ error: '❌ Homework type must be "questions", "pages_from_book", or "pdf"' });
+      }
+
+      // Validate based on homework type
+      if (homework_type === 'pdf') {
+        if (!pdf_file_name || pdf_file_name.trim() === '') {
+          return res.status(400).json({ error: '❌ PDF file name is required' });
+        }
+        if (!pdf_url || pdf_url.trim() === '') {
+          return res.status(400).json({ error: '❌ PDF file is required' });
+        }
+      } else if (homework_type === 'pages_from_book') {
+        if (!book_name || book_name.trim() === '') {
+          return res.status(400).json({ error: '❌ Book name is required' });
+        }
+        if (!from_page || parseInt(from_page) < 1) {
+          return res.status(400).json({ error: '❌ From page must be at least 1' });
+        }
+        if (!to_page || parseInt(to_page) < 1) {
+          return res.status(400).json({ error: '❌ To page must be at least 1' });
+        }
+        if (parseInt(from_page) > parseInt(to_page)) {
+          return res.status(400).json({ error: '❌ To page must be greater than or equal to from page' });
+        }
+      } else if (homework_type === 'questions') {
+        if (!Array.isArray(questions) || questions.length === 0) {
+          return res.status(400).json({ error: '❌ At least one question is required' });
+        }
+
+        // Validate questions
+        for (let i = 0; i < questions.length; i++) {
+          const validationError = validateOnlineQuestionPayload(questions[i], i);
+          if (validationError) {
+            return res.status(400).json({ error: validationError });
+          }
+        }
+      }
+
+      if (deadline_type === 'with_deadline') {
+        if (!deadline_date) {
+          return res.status(400).json({ error: '❌ Deadline date is required' });
+        }
+        const rawT = deadline_time != null && String(deadline_time).trim() !== '' ? String(deadline_time).trim() : '';
+        if (rawT && !parseDeadlineTime(rawT)) {
+          return res.status(400).json({ error: '❌ Invalid deadline time (use format like 04:30 AM)' });
+        }
+        const normTime = normalizeDeadlineTimeField(deadline_type, deadline_time);
+        if (!isDeadlineStrictlyInFutureEgypt(deadline_date, normTime)) {
+          return res.status(400).json({ error: '❌ Deadline must be in the future (Egypt time)' });
+        }
+      }
+
+      // Validate course, courseType, and lesson combination uniqueness (excluding current homework)
+      const courseTrimmed = course.trim();
+      const courseTypeTrimmed = courseType ? courseType.trim() : '';
+      const lessonTrimmed = lesson.trim();
+      const centerTrimmed = center && String(center).trim() !== '' ? String(center).trim() : null;
+      
+      const existingHomework = await db.collection('homeworks').findOne({
+        course: courseTrimmed,
+        courseType: courseTypeTrimmed || null,
+        lesson: lessonTrimmed,
+        ...duplicateCenterMongoFragment(centerTrimmed),
+        _id: { $ne: new ObjectId(id) }, // Exclude current homework
+      });
+      if (existingHomework) {
+        return res.status(400).json({
+          error: `❌ A homework with this course, course type, lesson, and center already exists.`,
+        });
+      }
+
+      // Normalize homework state if provided
+      let finalState = null;
+      if (state === 'Activated' || state === 'Deactivated') {
+        finalState = state;
+      }
+
+      const normDeadlineTimePut = normalizeDeadlineTimeField(deadline_type || 'no_deadline', deadline_time);
+
+      const updateData = {
+        course: courseTrimmed,
+        courseType: courseTypeTrimmed || null,
+        center: centerTrimmed,
+        lesson: lessonTrimmed,
+        lesson_name: lesson_name.trim(),
+        homework_type: homework_type,
+        deadline_type: deadline_type || 'no_deadline',
+        deadline_date: deadline_type === 'with_deadline' ? deadline_date : null,
+        deadline_time: deadline_type === 'with_deadline' ? normDeadlineTimePut : null,
+        timer: homework_type === 'questions' && timer !== null && timer !== undefined ? parseInt(timer) : null,
+        shuffle_questions_and_answers: homework_type === 'questions' ? (shuffle_questions_and_answers === true || shuffle_questions_and_answers === 'true') : false,
+        show_details_after_submitting: homework_type === 'questions' ? (show_details_after_submitting === true || show_details_after_submitting === 'true') : false,
+        comment: comment && comment.trim() !== '' ? comment.trim() : null,
+      };
+
+      if (finalState) {
+        updateData.state = finalState;
+      }
+
+      if (homework_type === 'pdf') {
+        updateData.pdf_file_name = pdf_file_name.trim();
+        updateData.pdf_url = pdf_url.trim();
+        updateData.allow_downloading = allow_downloading === false || allow_downloading === 'false' ? false : true;
+        updateData.$unset = { questions: '', book_name: '', from_page: '', to_page: '' };
+      } else if (homework_type === 'pages_from_book') {
+        updateData.book_name = book_name.trim();
+        updateData.from_page = parseInt(from_page);
+        updateData.to_page = parseInt(to_page);
+        updateData.$unset = { questions: '', pdf_file_name: '', pdf_url: '', allow_downloading: '' };
+      } else if (homework_type === 'questions') {
+        updateData.questions = questions.map(q => serializeOnlineQuestionForDb(q, normalizeQuestionPictures));
+        updateData.$unset = { 
+          ...(updateData.$unset || {}),
+          book_name: '',
+          from_page: '',
+          to_page: '',
+          pdf_file_name: '',
+          pdf_url: '',
+          allow_downloading: ''
+        };
+      }
+
+      // Handle $unset separately if it exists
+      const unsetData = updateData.$unset;
+      delete updateData.$unset;
+
+      const updateQuery = { 
+        $set: updateData,
+        ...(unsetData ? { $unset: unsetData } : {})
+      };
+
+      // Also remove old account_state field if present (we now use "state")
+      const existing = await db.collection('homeworks').findOne({ _id: new ObjectId(id) });
+      if (existing && existing.account_state !== undefined) {
+        updateQuery.$unset = { ...(updateQuery.$unset || {}), account_state: '' };
+      }
+
+      const result = await db.collection('homeworks').updateOne(
+        { _id: new ObjectId(id) },
+        updateQuery
+      );
+
+      if (result.matchedCount === 0) {
+        return res.status(404).json({ error: '❌ Homework not found' });
+      }
+
+      return res.status(200).json({ 
+        success: true, 
+        message: 'Homework updated successfully' 
+      });
+    }
+
+    if (req.method === 'DELETE') {
+      // Delete homework
+      const { id } = req.query;
+
+      if (!id) {
+        return res.status(400).json({ error: '❌ Homework ID is required' });
+      }
+
+      const result = await db.collection('homeworks').deleteOne(
+        { _id: new ObjectId(id) }
+      );
+
+      if (result.deletedCount === 0) {
+        return res.status(404).json({ error: '❌ Homework not found' });
+      }
+
+      return res.status(200).json({ 
+        success: true, 
+        message: 'Homework deleted successfully' 
+      });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (error) {
+    console.error('Homeworks API error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    if (client) await client.close();
+  }
+}
+
