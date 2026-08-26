@@ -708,7 +708,7 @@ export default function ViewScores() {
             }
             .scores-table-wrap {
               border-radius: 10px;
-              zoom: 0.85;
+              zoom: 0.92;
             }
             .pagination-page-info {
               font-size: 1rem;
@@ -758,7 +758,7 @@ export default function ViewScores() {
               font-size: 1.1rem;
             }
             .scores-table-wrap {
-              zoom: 0.82;
+              zoom: 0.90;
             }
             .pagination-container {
               gap: 8px;
@@ -778,15 +778,15 @@ export default function ViewScores() {
             @media (max-width: 768px) {
               .scores-table-wrap {
                 zoom: unset;
-                transform: scale(0.85);
+                transform: scale(0.92);
                 transform-origin: top left;
-                width: 117.65%;
+                width: 108.70%;
               }
             }
             @media (max-width: 480px) {
               .scores-table-wrap {
-                transform: scale(0.82);
-                width: 121.95%;
+                transform: scale(0.90);
+                width: 111.11%;
               }
             }
           }
