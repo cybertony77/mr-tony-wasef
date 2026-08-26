@@ -11,13 +11,13 @@
 }
 
 .compactRoot {
-  zoom: 0.74;
+  zoom: 0.85;
 }
 
 @supports not (zoom: 1) {
   .compactRoot {
-    transform: scale(0.74);
+    transform: scale(0.85);
     transform-origin: top left;
-    width: 135.14%;
+    width: 117.65%;
   }
-} 
+}
