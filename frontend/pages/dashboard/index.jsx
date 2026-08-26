@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import Image from 'next/image';
 import { useSystemConfig } from '../../lib/api/system';
+import DesmosQuestionAssist from '../../components/student/DesmosQuestionAssist';
 
 export default function Dashboard() {
   const router = useRouter();
@@ -13,6 +14,7 @@ export default function Dashboard() {
   const isGoogleJoinMeetingEnabled = systemConfig?.google_join_meeting === true || systemConfig?.google_join_meeting === 'true';
   const isPaymentSystemEnabled = systemConfig?.payment_system === true || systemConfig?.payment_system === 'true';
   const isCertificatesEnabled = systemConfig?.certificates === true || systemConfig?.certificates === 'true';
+  const isDesmosEnabled = systemConfig?.desmos_integrations === true || systemConfig?.desmos_integrations === 'true';
 
   useEffect(() => {
     // Authentication is now handled by _app.js with HTTP-only cookies
@@ -250,6 +252,26 @@ export default function Dashboard() {
             <Image src="/certificate.svg" alt="Certificates" width={20} height={20} />
             Certificates
           </button>
+        )}
+        {isDesmosEnabled && (
+          <DesmosQuestionAssist
+            standalone
+            instanceKey="dashboard-desmos"
+          >
+            {({ showDesmos, openCalculator, isOpen }) =>
+              showDesmos ? (
+                <button
+                  type="button"
+                  className="dashboard-btn"
+                  onClick={() => openCalculator?.()}
+                  disabled={isOpen || !openCalculator}
+                >
+                  <Image src="/calculator.svg" alt="Desmos Calculator" width={20} height={20} />
+                  Desmos Calculator
+                </button>
+              ) : null
+            }
+          </DesmosQuestionAssist>
         )}
         {isZoomJoinMeetingEnabled && (
           <button

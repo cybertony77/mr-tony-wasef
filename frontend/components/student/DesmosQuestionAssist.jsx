@@ -164,6 +164,8 @@ function CalculatorTypeSelect({ value, onChange, disabled }) {
 export default function DesmosQuestionAssist({
   useDesmos = false,
   instanceKey = 'desmos',
+  /** When true: ignore per-question flag; show if system Desmos is on. Portal-only (no page layout shift). */
+  standalone = false,
   children,
 }) {
   const { data: systemConfig } = useSystemConfig();
@@ -173,7 +175,10 @@ export default function DesmosQuestionAssist({
   const questionWantsDesmos = isDesmosEnabledForQuestion(useDesmos);
   // Both required: use_desmos=true AND SYSTEM_DESMOS_INTEGRATIONS=true (plus API key).
   // If use_desmos is true but the system flag is off, do not show the button.
-  const show = questionWantsDesmos && featureOn && Boolean(apiKey);
+  // standalone=true: dashboard shortcut — system flag + API key only.
+  const show = standalone
+    ? featureOn && Boolean(apiKey)
+    : questionWantsDesmos && featureOn && Boolean(apiKey);
   const group = useDesmosAssistGroup();
   const isCompact = useIsCompactLayout(1024);
   const reactId = useId();
@@ -182,8 +187,9 @@ export default function DesmosQuestionAssist({
   const releaseOpen = group?.releaseOpen;
   const setGroupPanelWidth = group?.setPanelWidth;
   const blockedByOther = Boolean(group?.isBlocked?.('desmos', instanceKey));
-  // Inside a group, the group owns the desktop push layout for the whole page
-  const useExternalLayout = Boolean(group);
+  // Inside a group, the group owns the desktop push layout for the whole page.
+  // standalone dashboard popup must not wrap the page in the question shell layout.
+  const useExternalLayout = Boolean(group) || standalone;
 
   const [open, setOpen] = useState(false);
   const [everOpened, setEverOpened] = useState(false);
@@ -614,6 +620,11 @@ export default function DesmosQuestionAssist({
     return () => window.removeEventListener('resize', onResize);
   }, [open, status, isCompact, resizeCalculator]);
 
+  const openCalculator = useCallback(() => {
+    if (!show || blockedByOther) return;
+    setOpen(true);
+  }, [show, blockedByOther]);
+
   const calculatorButton = useMemo(() => {
     if (!show) return null;
     const disabled = open || blockedByOther;
@@ -662,6 +673,7 @@ export default function DesmosQuestionAssist({
     if (typeof children === 'function') {
       return children({
         calculatorButton,
+        openCalculator,
         isOpen: open,
         showDesmos: show,
         blockedByOther,
@@ -679,6 +691,7 @@ export default function DesmosQuestionAssist({
     if (typeof children === 'function') {
       return children({
         calculatorButton: null,
+        openCalculator: null,
         isOpen: false,
         showDesmos: false,
         blockedByOther: false,

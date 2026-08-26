@@ -1,23 +1,38 @@
 import { google } from 'googleapis';
 import fs from 'fs';
 import path from 'path';
-import { parseSystemBackground } from '../../../lib/systemColors';
+import {
+  loadSystemBackgroundFromEnv,
+  parseGradientColorStops,
+  parseSystemBackground,
+} from '../../../lib/systemColors';
 
 // Load environment variables from env.config
 function loadEnvConfig() {
   try {
-    const envPath = path.join(process.cwd(), '..', 'env.config');
+    const candidates = [
+      path.join(process.cwd(), '..', 'env.config'),
+      path.join(process.cwd(), 'env.config'),
+    ];
+    const envPath = candidates.find((p) => fs.existsSync(p));
+    if (!envPath) return {};
+
     const envContent = fs.readFileSync(envPath, 'utf8');
     const envVars = {};
     
-    envContent.split('\n').forEach(line => {
+    envContent.split(/\r?\n/).forEach(line => {
       const trimmed = line.trim();
       if (trimmed && !trimmed.startsWith('#')) {
         const index = trimmed.indexOf('=');
         if (index !== -1) {
           const key = trimmed.substring(0, index).trim();
           let value = trimmed.substring(index + 1).trim();
-          value = value.replace(/^"|"$/g, '');
+          if (
+            (value.startsWith('"') && value.endsWith('"')) ||
+            (value.startsWith("'") && value.endsWith("'"))
+          ) {
+            value = value.slice(1, -1);
+          }
           envVars[key] = value;
         }
       }
@@ -39,9 +54,20 @@ const ASSISTANT_DRIVE_LINK = envConfig.ASSISTANT_DRIVE_LINK || process.env.ASSIS
 const ADMIN_DRIVE_LINK = envConfig.ADMIN_DRIVE_LINK || process.env.ADMIN_DRIVE_LINK || '';
 const SYSTEM_DOMAIN = envConfig.SYSTEM_DOMAIN || process.env.SYSTEM_DOMAIN || 'https://demosys.myvnc.com';
 const SYSTEM_NAME = envConfig.SYSTEM_NAME || process.env.SYSTEM_NAME || 'AI Agentic Assistant System';
-const EMAIL_HEADER_BACKGROUND = parseSystemBackground(
-  envConfig.SYSTEM_COLORS || process.env.SYSTEM_COLORS
-);
+
+/** Resolve SYSTEM_COLORS for email at send-time (env may change without restart in some setups). */
+function resolveEmailTheme() {
+  const raw =
+    envConfig.SYSTEM_COLORS ||
+    process.env.SYSTEM_COLORS ||
+    '';
+  const background = parseSystemBackground(raw) || loadSystemBackgroundFromEnv();
+  const { start: primary, end: accent } = parseGradientColorStops(background);
+  // Email clients: solid fallback + gradient when supported
+  const headerStyle = `background-color:${primary};background-image:${background};background:${background};`;
+  const footerStyle = `background-color:${primary};`;
+  return { background, primary, accent, headerStyle, footerStyle };
+}
 
 // Initialize Gmail API client
 let gmailClient = null;
@@ -198,9 +224,11 @@ function generateEmailHTML(name, role, driveLink) {
     return null;
   }
   
+  const { headerStyle, footerStyle } = resolveEmailTheme();
+
   const html = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: ${EMAIL_HEADER_BACKGROUND}; padding: 0;">
-      <div style="padding: 40px 30px; background: ${EMAIL_HEADER_BACKGROUND};">
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; ${headerStyle} padding: 0;">
+      <div style="padding: 40px 30px; ${headerStyle}">
         <div style="text-align: center; margin-bottom: 30px;">
           <img src="${SYSTEM_DOMAIN}/logo.png" alt="Logo" style="width: 100px; height: 100px; margin: 0 auto; display: block; border-radius: 10px;" />
         </div>
@@ -208,13 +236,13 @@ function generateEmailHTML(name, role, driveLink) {
         <p style="color: white; font-size: 16px; margin: 30px 0 0 0;">Best regards,</p>
         <p style="color: white; font-size: 16px; margin: 5px 0 0 0;">Support Team 🤝</p>
       </div>
-      <div style="border-top: 1px solid rgba(255, 255, 255, 0.2); padding: 30px; background: ${EMAIL_HEADER_BACKGROUND};">
+      <div style="border-top: 1px solid rgba(255, 255, 255, 0.2); padding: 30px; ${headerStyle}">
         <div style="color: white; font-size: 20px; font-weight: bold; font-family: sans-serif; margin-bottom: 15px; text-align: center;">${SYSTEM_NAME}</div>
         <div style="color: white; text-decoration: underline; font-size: 14px; margin-bottom: 20px; text-align: center;">
           <a href="${SYSTEM_DOMAIN}" style="color: white; text-decoration: underline;">${SYSTEM_DOMAIN.replace(/^https?:\/\//, '')}</a>
         </div>
       </div>
-      <div style="border-top: 1px solid rgb(94, 88, 88); padding: 15px 30px; background-color: #2A4264;">
+      <div style="border-top: 1px solid rgba(255, 255, 255, 0.25); padding: 15px 30px; ${footerStyle}">
         <p style="color: white; font-size: 12px; margin: 0; text-align: center;">This is an automated message. Please do not reply directly to this email.</p>
       </div>
     </div>
@@ -293,9 +321,11 @@ function generatePasswordChangeEmailHTML(name, role) {
     <p style="color: white; font-size: 16px; margin: 0 0 30px 0;">${contactMessage}</p>
   `;
   
+  const { headerStyle, footerStyle } = resolveEmailTheme();
+
   const html = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: ${EMAIL_HEADER_BACKGROUND}; padding: 0;">
-      <div style="padding: 40px 30px; background: ${EMAIL_HEADER_BACKGROUND};">
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; ${headerStyle} padding: 0;">
+      <div style="padding: 40px 30px; ${headerStyle}">
         <div style="text-align: center; margin-bottom: 30px;">
           <img src="${SYSTEM_DOMAIN}/logo.png" alt="Logo" style="width: 100px; height: 100px; margin: 0 auto; display: block; border-radius: 10px;" />
         </div>
@@ -303,13 +333,13 @@ function generatePasswordChangeEmailHTML(name, role) {
         <p style="color: white; font-size: 16px; margin: 30px 0 0 0;">Best regards,</p>
         <p style="color: white; font-size: 16px; margin: 5px 0 0 0;">Support Team 🤝</p>
       </div>
-      <div style="border-top: 1px solid rgba(255, 255, 255, 0.2); padding: 30px; background: ${EMAIL_HEADER_BACKGROUND};">
+      <div style="border-top: 1px solid rgba(255, 255, 255, 0.2); padding: 30px; ${headerStyle}">
         <div style="color: white; font-size: 20px; font-weight: bold; font-family: sans-serif; margin-bottom: 15px; text-align: center;">${SYSTEM_NAME}</div>
         <div style="color: white; text-decoration: underline; font-size: 14px; margin-bottom: 20px; text-align: center;">
           <a href="${SYSTEM_DOMAIN}" style="color: white; text-decoration: underline;">${SYSTEM_DOMAIN.replace(/^https?:\/\//, '')}</a>
         </div>
       </div>
-      <div style="border-top: 1px solid rgb(94, 88, 88); padding: 15px 30px; background-color: #2A4264;">
+      <div style="border-top: 1px solid rgba(255, 255, 255, 0.25); padding: 15px 30px; ${footerStyle}">
         <p style="color: white; font-size: 12px; margin: 0; text-align: center;">This is an automated message. Please do not reply directly to this email.</p>
       </div>
     </div>

@@ -3,22 +3,38 @@ import bcrypt from 'bcryptjs';
 import { google } from 'googleapis';
 import fs from 'fs';
 import path from 'path';
+import {
+  loadSystemBackgroundFromEnv,
+  parseGradientColorStops,
+  parseSystemBackground,
+} from '../../../../lib/systemColors';
 
 // Load environment variables from env.config
 function loadEnvConfig() {
   try {
-    const envPath = path.join(process.cwd(), '..', 'env.config');
+    const candidates = [
+      path.join(process.cwd(), '..', 'env.config'),
+      path.join(process.cwd(), 'env.config'),
+    ];
+    const envPath = candidates.find((p) => fs.existsSync(p));
+    if (!envPath) return {};
+
     const envContent = fs.readFileSync(envPath, 'utf8');
     const envVars = {};
     
-    envContent.split('\n').forEach(line => {
+    envContent.split(/\r?\n/).forEach(line => {
       const trimmed = line.trim();
       if (trimmed && !trimmed.startsWith('#')) {
         const index = trimmed.indexOf('=');
         if (index !== -1) {
           const key = trimmed.substring(0, index).trim();
           let value = trimmed.substring(index + 1).trim();
-          value = value.replace(/^"|"$/g, '');
+          if (
+            (value.startsWith('"') && value.endsWith('"')) ||
+            (value.startsWith("'") && value.endsWith("'"))
+          ) {
+            value = value.slice(1, -1);
+          }
           envVars[key] = value;
         }
       }
@@ -39,17 +55,14 @@ const GOOGLE_API_CREDENTIALS_PATH = envConfig.GOOGLE_API_CREDENTIALS_PATH || pro
 const GOOGLE_REFRESH_TOKEN = envConfig.GOOGLE_REFRESH_TOKEN || process.env.GOOGLE_REFRESH_TOKEN;
 const SYSTEM_DOMAIN = envConfig.SYSTEM_DOMAIN || process.env.SYSTEM_DOMAIN || 'https://demosys.myvnc.com';
 const SYSTEM_NAME = envConfig.SYSTEM_NAME || process.env.SYSTEM_NAME || 'Demo Attendance System';
-const SYSTEM_COLORS = envConfig.SYSTEM_COLORS || process.env.SYSTEM_COLORS || 'background: linear-gradient(380deg, #1FA8DC 0%, #FEB954 100%);';
 
-function parseEmailBrandColors(raw) {
-  const colors = String(raw || '').match(/#(?:[0-9a-fA-F]{3,8})\b/g) || [];
-  return {
-    primary: colors[0] || '#1FA8DC',
-    accent: colors[1] || '#FEB954',
-  };
+function resolveOtpEmailTheme() {
+  const raw = envConfig.SYSTEM_COLORS || process.env.SYSTEM_COLORS || '';
+  const background = parseSystemBackground(raw) || loadSystemBackgroundFromEnv();
+  const { start: primary, end: accent } = parseGradientColorStops(background);
+  const headerStyle = `background-color:${primary};background-image:${background};background:${background};`;
+  return { background, primary, accent, headerStyle };
 }
-
-const { primary: EMAIL_PRIMARY, accent: EMAIL_ACCENT } = parseEmailBrandColors(SYSTEM_COLORS);
 
 function getLogoAttachment() {
   const candidates = [
@@ -293,10 +306,8 @@ export default async function handler(req, res) {
     console.log('📧 Using email from:', EMAIL_USER);
 
     try {
-      const primary = EMAIL_PRIMARY || '#1FA8DC';
-      const accent = EMAIL_ACCENT || '#FEB954';
+      const { primary, accent, headerStyle } = resolveOtpEmailTheme();
       const domainLabel = String(SYSTEM_DOMAIN || '').replace(/^https?:\/\//, '');
-      const systemGradient = `linear-gradient(135deg, ${primary} 0%, ${accent} 100%)`;
       const emailHTML = `
 <!DOCTYPE html>
 <html lang="en">
@@ -311,10 +322,10 @@ export default async function handler(req, res) {
       <td align="center">
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:560px;background-color:#ffffff;border-radius:18px;overflow:hidden;border:1px solid #e4ebf3;">
           <tr>
-            <td style="height:6px;background:${systemGradient};font-size:0;line-height:0;">&nbsp;</td>
+            <td style="height:6px;${headerStyle}font-size:0;line-height:0;">&nbsp;</td>
           </tr>
           <tr>
-            <td style="background:${systemGradient};padding:30px 28px 26px 28px;text-align:center;">
+            <td style="${headerStyle}padding:30px 28px 26px 28px;text-align:center;">
               <img src="cid:system_logo" alt="${SYSTEM_NAME}" width="92" height="92" style="width:92px;height:92px;border-radius:18px;background:#ffffff;object-fit:contain;display:block;margin:0 auto 16px auto;border:3px solid rgba(255,255,255,0.95);" />
               <div style="color:#ffffff;font-size:22px;font-weight:800;letter-spacing:0.2px;line-height:1.25;text-shadow:0 1px 2px rgba(0,0,0,0.12);">${SYSTEM_NAME}</div>
               <div style="display:inline-block;margin-top:12px;padding:7px 14px;border-radius:999px;background:rgba(255,255,255,0.22);color:#ffffff;font-size:12px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;">Password Reset</div>

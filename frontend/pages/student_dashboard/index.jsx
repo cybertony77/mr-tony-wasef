@@ -7,6 +7,7 @@ import { useStudent } from '../../lib/api/students';
 import { useSystemConfig, isFeatureEnabled, useNationalSystem } from '../../lib/api/system';
 import apiClient from '../../lib/axios';
 import DashboardButtonsSkeleton from '../../components/DashboardButtonsSkeleton';
+import DesmosQuestionAssist from '../../components/student/DesmosQuestionAssist';
 
 // Join WhatsApp Group Popup Component (separate from button)
 function JoinWhatsAppGroupPopups({ showPopup, setShowPopup, showMessagePopup, setShowMessagePopup, messagePopupContent, groups, handleJoinGroup }) {
@@ -447,6 +448,7 @@ export default function StudentDashboard() {
   const isZoomJoinMeetingEnabled = isFeatureEnabled(systemConfig, 'zoom_join_meeting');
   const isGoogleJoinMeetingEnabled = isFeatureEnabled(systemConfig, 'google_join_meeting');
   const isPaymentSystemEnabled = isFeatureEnabled(systemConfig, 'payment_system');
+  const isDesmosEnabled = isFeatureEnabled(systemConfig, 'desmos_integrations');
   
   // Get student ID from profile and fetch student data
   const studentId = profile?.id ? profile.id.toString() : null;
@@ -1501,6 +1503,27 @@ export default function StudentDashboard() {
                   <Image src="/certificate.svg" alt="My Certificates" width={20} height={20} />
                   My Certificates
                 </button>
+              )}
+
+              {isDesmosEnabled && (
+                <DesmosQuestionAssist
+                  standalone
+                  instanceKey="student-dashboard-desmos"
+                >
+                  {({ showDesmos, openCalculator, isOpen }) =>
+                    showDesmos ? (
+                      <button
+                        type="button"
+                        className="dashboard-btn"
+                        onClick={() => openCalculator?.()}
+                        disabled={isOpen || !openCalculator}
+                      >
+                        <Image src="/calculator.svg" alt="Desmos Calculator" width={20} height={20} />
+                        Desmos Calculator
+                      </button>
+                    ) : null
+                  }
+                </DesmosQuestionAssist>
               )}
 
               <button
