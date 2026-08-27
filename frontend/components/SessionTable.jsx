@@ -382,12 +382,9 @@ export function SessionTable({
         <Table.Td style={{ 
           textAlign: 'center', 
           verticalAlign: 'middle',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          height: '100%',
           width: '120px',
-          minWidth: '120px'
+          minWidth: '120px',
+          padding: '10px 4px',
         }}>
           <WhatsAppButton 
             student={student} 

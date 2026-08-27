@@ -348,7 +348,16 @@ We wish ${firstName} gets high grades 😊❤
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', minHeight: '54px' }}>
+    <div
+      style={{
+        display: 'inline-flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: '2px',
+        verticalAlign: 'middle',
+      }}
+    >
+      <div aria-hidden style={{ minHeight: '18px', width: '100%' }} />
       <button
         onClick={handleWhatsAppClick}
         disabled={isCoolingDown}
@@ -460,6 +469,7 @@ We wish ${firstName} gets high grades 😊❤
       <div
         style={{
           minHeight: '18px',
+          width: '100%',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',

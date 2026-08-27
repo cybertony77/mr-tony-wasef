@@ -557,7 +557,16 @@ Best regards
   const renderVacWaButton = (onClick, targetKey) => {
     const showCounter = waCoolingDown && waCooldownTarget === targetKey;
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', minHeight: '54px' }}>
+      <div
+        style={{
+          display: 'inline-flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '2px',
+          verticalAlign: 'middle',
+        }}
+      >
+        <div aria-hidden style={{ minHeight: '18px', width: '100%' }} />
         <button
           type="button"
           onClick={onClick}
@@ -586,7 +595,6 @@ Best regards
             justifyContent: 'center',
             transform: waCoolingDown ? 'scale(0.985)' : 'scale(1)',
             letterSpacing: waCoolingDown ? '0.03em' : '0',
-            margin: '0 auto',
           }}
         >
           <span
@@ -656,9 +664,11 @@ Best regards
         <div
           style={{
             minHeight: '18px',
+            width: '100%',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
+            position: 'relative',
           }}
         >
           <div
@@ -994,7 +1004,7 @@ Best regards
                           regenerate
                         </button>
                       </Table.Td>
-                      <Table.Td style={{ textAlign: 'center' }}>
+                      <Table.Td style={{ textAlign: 'center', verticalAlign: 'middle', padding: '10px 4px' }}>
                         {vac.phone ? (
                           renderVacWaButton(
                             () => handleSendWhatsApp(vac),
@@ -1004,7 +1014,7 @@ Best regards
                           <span style={{ color: '#6c757d', fontStyle: 'italic', fontSize: '0.85rem' }}>No phone</span>
                         )}
                       </Table.Td>
-                      <Table.Td style={{ textAlign: 'center' }}>
+                      <Table.Td style={{ textAlign: 'center', verticalAlign: 'middle', padding: '10px 4px' }}>
                         {vac.parents_phone ? (
                           renderVacWaButton(
                             () => handleSendParentWhatsApp(vac),
