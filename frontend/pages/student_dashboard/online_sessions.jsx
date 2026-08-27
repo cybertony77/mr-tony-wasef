@@ -390,16 +390,29 @@ export default function OnlineSessions() {
   const isVideoUnlocked = (session) => {
     const sessionId = session._id?.toString() || session._id;
     const unlockedInfo = unlockedSessions.get(sessionId);
+    const lessonData = getStudentLesson(studentData?.lessons, session.lesson);
 
     if (session.payment_state === 'free' || session.payment_state === 'free_if_attended_in_center') {
       const entry = getFreeViewingEntry(sessionId);
-      const freeExpired = isFreeViewingExpired(session, entry);
+      const freeExpired = isFreeViewingExpired(session, entry, lessonData);
 
       if (session.payment_state === 'free_if_attended_in_center' && !freeExpired) {
         // Prefer live student lesson data: attended=true + lastAttendanceCenter not Online
-        const lessonData = getStudentLesson(studentData?.lessons, session.lesson);
         let attended = attendedInCenter(lessonData);
         // Fallback to API flag if lesson data not loaded yet
+        if (!attended && lessonData == null && session._attendedInCenter === true) {
+          attended = true;
+        }
+        if (!attended) return false;
+      }
+
+      // Free + number_of_days also requires center attendance (window from lastAttendance)
+      if (
+        session.payment_state === 'free' &&
+        session.viewing_limit_type === 'number_of_days' &&
+        !freeExpired
+      ) {
+        let attended = attendedInCenter(lessonData);
         if (!attended && lessonData == null && session._attendedInCenter === true) {
           attended = true;
         }
@@ -413,7 +426,7 @@ export default function OnlineSessions() {
 
       // Still within free window
       if (!freeExpired) {
-        return isFreeViewingAccessValid(session, entry);
+        return isFreeViewingAccessValid(session, entry, lessonData);
       }
 
       return false;
@@ -780,12 +793,16 @@ export default function OnlineSessions() {
         }
       }
 
-      // Free / free-if-attended: start or continue free access window (countdown from first open)
+      // Free / free-if-attended: continue free access (days from lastAttendance; views from first open)
       if (
         FREE_ONLINE_SESSION_PAYMENT_STATES.includes(session.payment_state) &&
         profile?.id &&
         !unlockedInfo &&
-        isFreeViewingAccessValid(session, freeEntry)
+        isFreeViewingAccessValid(
+          session,
+          freeEntry,
+          getStudentLesson(studentData?.lessons, session.lesson)
+        )
       ) {
         try {
           const startRes = await apiClient.post(`/api/students/${profile.id}/watch-video`, {
@@ -881,7 +898,11 @@ export default function OnlineSessions() {
       setVvc('');
       setVvcError(
         FREE_ONLINE_SESSION_PAYMENT_STATES.includes(session.payment_state) &&
-          isFreeViewingExpired(session, freeEntry)
+          isFreeViewingExpired(
+            session,
+            freeEntry,
+            getStudentLesson(studentData?.lessons, session.lesson)
+          )
           ? getVerificationCodeMessage('vvc', CODE_ERROR.FREE_VIEWING_ENDED)
           : ''
       );

@@ -5,14 +5,18 @@ import { generatePublicStudentLink } from '../lib/generatePublicLink';
 import { useSystemConfig } from '../lib/api/system';
 import apiClient from '../lib/axios';
 
-const WhatsAppButton = ({ student, onMessageSent, onScoreUpdate }) => {
+const WhatsAppButton = ({ student, onMessageSent, onScoreUpdate, cooldownLeft = 0, showCooldown = false, onCooldownStart }) => {
   const { data: systemConfig } = useSystemConfig();
   const systemName = systemConfig?.name || 'Demo Attendance System';
   const isScoringEnabled = systemConfig?.scoring_system === true || systemConfig?.scoring_system === 'true';
+  const isNational =
+    systemConfig?.national_system === true || systemConfig?.national_system === 'true';
   const [message, setMessage] = useState('');
   const updateMessageStateMutation = useUpdateMessageState();
+  const isCoolingDown = cooldownLeft > 0;
 
   const handleWhatsAppClick = () => {
+    if (isCoolingDown) return;
     setMessage('');
 
     try {
@@ -63,55 +67,60 @@ const WhatsAppButton = ({ student, onMessageSent, onScoreUpdate }) => {
       };
 
 
-      // Get previous lesson data (the lesson before the current one)
+      // National system: HW/quiz from SAME (current) lesson
+      // Non-national: HW/quiz from PREVIOUS lesson (index - 1)
       const lessonKeys = Object.keys(student.lessons || {});
       const currentIndex = lessonKeys.findIndex(
         key => key.trim().toLowerCase() === lessonName.trim().toLowerCase()
       );
 
-      let previousLesson = null;
-      if (currentIndex > 0) {
-        const prevLessonName = lessonKeys[currentIndex - 1];
-        previousLesson = student.lessons[prevLessonName];
-        console.log(`Previous lesson found: ${prevLessonName}`, previousLesson);
+      let hwQuizLesson = null;
+      let hwQuizLessonName = null;
+      if (isNational) {
+        hwQuizLesson = lessonData || null;
+        hwQuizLessonName = currentLessonName || null;
+      } else if (currentIndex > 0) {
+        hwQuizLessonName = lessonKeys[currentIndex - 1];
+        hwQuizLesson = student.lessons[hwQuizLessonName];
+        console.log(`Previous lesson found: ${hwQuizLessonName}`, hwQuizLesson);
       } else {
         console.log(`No previous lesson found for ${lessonName}`);
       }
 
-      // Compute previous homework and quiz from previous lesson
-      let previousAssignment = null;
-      let previousQuizDegree = null;
+      // Compute homework and quiz from selected lesson (current for national, previous otherwise)
+      let assignmentText = null;
+      let quizDegreeText = null;
 
-      if (previousLesson) {
-        if (previousLesson.hwDone === true) {
+      if (hwQuizLesson) {
+        if (hwQuizLesson.hwDone === true) {
           if (
-            previousLesson.homework_degree !== null &&
-            previousLesson.homework_degree !== undefined &&
-            String(previousLesson.homework_degree).trim() !== ''
+            hwQuizLesson.homework_degree !== null &&
+            hwQuizLesson.homework_degree !== undefined &&
+            String(hwQuizLesson.homework_degree).trim() !== ''
           ) {
-            previousAssignment = `Done (${previousLesson.homework_degree})`;
+            assignmentText = `Done (${hwQuizLesson.homework_degree})`;
           } else {
-            previousAssignment = 'Done';
+            assignmentText = 'Done';
           }
-        } else if (previousLesson.hwDone === false) {
-          previousAssignment = 'Not Done';
-        } else if (previousLesson.hwDone === 'No Homework') {
-          previousAssignment = 'No Homework';
-        } else if (previousLesson.hwDone === 'Not Completed') {
-          previousAssignment = 'Not Completed';
+        } else if (hwQuizLesson.hwDone === false) {
+          assignmentText = 'Not Done';
+        } else if (hwQuizLesson.hwDone === 'No Homework') {
+          assignmentText = 'No Homework';
+        } else if (hwQuizLesson.hwDone === 'Not Completed') {
+          assignmentText = 'Not Completed';
         } else {
-          previousAssignment = 'Not Done';
+          assignmentText = 'Not Done';
         }
 
         if (
-          previousLesson.quizDegree !== null &&
-          previousLesson.quizDegree !== undefined &&
-          String(previousLesson.quizDegree).trim() !== ''
+          hwQuizLesson.quizDegree !== null &&
+          hwQuizLesson.quizDegree !== undefined &&
+          String(hwQuizLesson.quizDegree).trim() !== ''
         ) {
-          previousQuizDegree = previousLesson.quizDegree;
+          quizDegreeText = hwQuizLesson.quizDegree;
         }
 
-        console.log(`Previous assignment: ${previousAssignment}, Previous quiz: ${previousQuizDegree}`);
+        console.log(`Assignment: ${assignmentText}, Quiz: ${quizDegreeText}`);
       }
 
       // Create the message using the specified format
@@ -125,15 +134,17 @@ We want to inform you that we are in:
   • Lesson: ${lessonName}
   • Attendance Info: ${currentLesson.attended ? `${currentLesson.lastAttendance}` : 'Absent'}`;
 
-      // Add previous lesson homework and quiz if available
-      if (previousAssignment || previousQuizDegree) {
-        if (previousAssignment) {
+      // Add homework and quiz if available
+      const hwLabel = isNational ? 'Homework' : 'Previous Assignment';
+      const quizLabel = isNational ? 'Quiz Degree' : 'Previous Quiz Degree';
+      if (assignmentText || quizDegreeText) {
+        if (assignmentText) {
           whatsappMessage += `
-  • Previous Assignment: ${previousAssignment}`;
+  • ${hwLabel}: ${assignmentText}`;
         }
-        if (previousQuizDegree) {
+        if (quizDegreeText) {
           whatsappMessage += `
-  • Previous Quiz Degree: ${previousQuizDegree}`;
+  • ${quizLabel}: ${quizDegreeText}`;
         }
       }
       
@@ -163,7 +174,7 @@ Note :-
 
 *Please renew to continue your sessions without interruption.*` : ''}` : ''}
 
-We wish ${firstName} gets high scores 😊❤
+We wish ${firstName} gets high grades 😊❤
 
 – ${systemName}`;
 
@@ -195,14 +206,20 @@ We wish ${firstName} gets high scores 😊❤
       
       // If we reach here, everything was successful
       setMessage('WhatsApp opened successfully!');
+      if (typeof onCooldownStart === 'function') {
+        onCooldownStart();
+      }
       
       // Update message state in database
       console.log('Updating message state in database for student:', student.id, 'lesson:', lessonName);
       console.log('Student data:', { id: student.id, attendanceLesson: student.attendanceLesson, name: student.name });
       console.log('Student lessons data:', student.lessons);
       
-      // Find previous lesson name for scoring context
-      const prevLessonName = currentIndex > 0 ? lessonKeys[currentIndex - 1] : null;
+      // Homework scoring lesson: current for national, previous for non-national
+      const scoringHwLessonName = isNational
+        ? lessonName
+        : (currentIndex > 0 ? lessonKeys[currentIndex - 1] : null);
+      const scoringHwLesson = isNational ? lessonData : hwQuizLesson;
 
       // Run message_state update and scoring in parallel (don't block on mutation)
       // 1. Update message_state in database
@@ -269,21 +286,22 @@ We wish ${firstName} gets high scores 😊❤
               }
             }
 
-            // === HOMEWORK: Apply hwDone=false scoring on PREVIOUS lesson ===
-            if (previousLesson && previousLesson.hwDone === false && prevLessonName) {
+            // === HOMEWORK: Apply hwDone=false scoring
+            // National: CURRENT lesson | Non-national: PREVIOUS lesson
+            if (scoringHwLesson && scoringHwLesson.hwDone === false && scoringHwLessonName) {
               try {
-                // Check if homework "Not Done" scoring was already applied for this student+prevLesson
+                // Check if homework "Not Done" scoring was already applied for this student+lesson
                 const historyResponse = await apiClient.post('/api/scoring/get-last-history', {
                   studentId: student.id,
                   type: 'homework',
-                  lesson: prevLessonName
+                  lesson: scoringHwLessonName
                 });
 
                 const alreadyApplied = historyResponse.data.found && 
                   historyResponse.data.history?.data?.hwDone === false;
 
                 if (alreadyApplied) {
-                  console.log(`[SCORING] Homework "Not Done" scoring already applied for student ${student.id}, previous lesson "${prevLessonName}" — skipping to prevent duplicate`);
+                  console.log(`[SCORING] Homework "Not Done" scoring already applied for student ${student.id}, lesson "${scoringHwLessonName}" — skipping to prevent duplicate`);
                 } else {
                   // Get previous hwDone state for proper score calculation
                   const previousHwDone = historyResponse.data.found 
@@ -293,13 +311,13 @@ We wish ${firstName} gets high scores 😊❤
                   await apiClient.post('/api/scoring/calculate', {
                     studentId: student.id,
                     type: 'homework',
-                    lesson: prevLessonName,
+                    lesson: scoringHwLessonName,
                     data: {
                       hwDone: false,
                       previousHwDone: previousHwDone
                     }
                   });
-                  console.log(`[SCORING] Homework "Not Done" score applied for student ${student.id}, previous lesson "${prevLessonName}"`);
+                  console.log(`[SCORING] Homework "Not Done" score applied for student ${student.id}, lesson "${scoringHwLessonName}"`);
                   scoreUpdated = true;
                 }
               } catch (err) {
@@ -330,50 +348,166 @@ We wish ${firstName} gets high scores 😊❤
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', minHeight: '54px' }}>
       <button
         onClick={handleWhatsAppClick}
+        disabled={isCoolingDown}
         style={{
-          backgroundColor: '#25D366',
-          color: 'white',
+          position: 'relative',
+          overflow: 'hidden',
+          background: isCoolingDown ? '#1c1f24' : 'rgb(37, 211, 102)',
+          color: '#ffffff',
           border: 'none',
-          borderRadius: '6px',
+          outline: 'none',
+          borderRadius: '10px',
           padding: '6px 12px',
           fontSize: '12px',
-          cursor: 'pointer',
+          cursor: isCoolingDown ? 'not-allowed' : 'pointer',
           display: 'flex',
           alignItems: 'center',
-          gap: '4px',
-          fontWeight: '500',
-          transition: 'all 0.3s ease',
-          boxShadow: '0 2px 4px rgba(37, 211, 102, 0.2)'
+          gap: '6px',
+          fontWeight: '600',
+          transition: 'background 0.45s cubic-bezier(0.22, 1, 0.36, 1), transform 0.45s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.45s ease, letter-spacing 0.45s ease',
+          boxShadow: isCoolingDown
+            ? '0 6px 16px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.06)'
+            : '0 3px 10px rgba(37, 211, 102, 0.3)',
+          minWidth: '78px',
+          justifyContent: 'center',
+          transform: isCoolingDown ? 'scale(0.985)' : 'scale(1)',
+          letterSpacing: isCoolingDown ? '0.03em' : '0',
         }}
         onMouseEnter={(e) => {
-          e.target.style.backgroundColor = '#25D366';
-          e.target.style.transform = 'translateY(-1px)';
-          e.target.style.boxShadow = '0 4px 8px rgba(37, 211, 102, 0.3)';
+          if (isCoolingDown) return;
+          e.currentTarget.style.transform = 'translateY(-1px) scale(1)';
+          e.currentTarget.style.boxShadow = '0 5px 14px rgba(37, 211, 102, 0.4)';
         }}
         onMouseLeave={(e) => {
-          e.target.style.backgroundColor = '#25D366';
-          e.target.style.transform = 'translateY(0)';
-          e.target.style.boxShadow = '0 2px 4px rgba(37, 211, 102, 0.2)';
+          e.currentTarget.style.transform = isCoolingDown ? 'scale(0.985)' : 'scale(1)';
+          e.currentTarget.style.boxShadow = isCoolingDown
+            ? '0 6px 16px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.06)'
+            : '0 3px 10px rgba(37, 211, 102, 0.3)';
+        }}
+        title={isCoolingDown ? `Wait ${cooldownLeft}s before sending again` : 'Send WhatsApp'}
+      >
+        <span
+          aria-hidden
+          style={{
+            position: 'absolute',
+            inset: 0,
+            borderRadius: 'inherit',
+            background: 'linear-gradient(160deg, #2a2f36 0%, #1c1f24 55%, #14171b 100%)',
+            opacity: isCoolingDown ? 1 : 0,
+            transition: 'opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1)',
+            pointerEvents: 'none',
+            zIndex: 0,
+          }}
+        />
+        <span
+          style={{
+            position: 'relative',
+            zIndex: 1,
+            width: 28,
+            height: 28,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+          }}
+        >
+          <Image
+            src="/whatsapp.svg"
+            alt=""
+            width={28}
+            height={28}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              opacity: isCoolingDown ? 0 : 1,
+              transform: isCoolingDown ? 'scale(0.65) rotate(-12deg)' : 'scale(1) rotate(0deg)',
+              transition: 'opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1), transform 0.5s cubic-bezier(0.22, 1, 0.36, 1)',
+              pointerEvents: 'none',
+            }}
+          />
+          <Image
+            src="/close-cross.svg"
+            alt=""
+            width={28}
+            height={28}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              opacity: isCoolingDown ? 1 : 0,
+              transform: isCoolingDown ? 'scale(1) rotate(0deg)' : 'scale(0.65) rotate(12deg)',
+              transition: 'opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1), transform 0.5s cubic-bezier(0.22, 1, 0.36, 1)',
+              pointerEvents: 'none',
+            }}
+          />
+        </span>
+        <span
+          style={{
+            position: 'relative',
+            zIndex: 1,
+            transition: 'opacity 0.4s ease, color 0.4s ease, letter-spacing 0.45s ease',
+            opacity: isCoolingDown ? 0.88 : 1,
+            color: isCoolingDown ? 'rgba(255,255,255,0.78)' : '#ffffff',
+            letterSpacing: isCoolingDown ? '0.02em' : '0',
+          }}
+        >
+          Send
+        </span>
+      </button>
+
+      <div
+        style={{
+          minHeight: '18px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          position: 'relative',
         }}
       >
-        <Image src="/whatsapp.svg" alt="WhatsApp" width={30} height={30} />
-        Send
-      </button>
-      
-      {message && (
-        <div style={{
-          fontSize: '10px',
-          color: message.includes('success') ? '#28a745' : '#dc3545',
-          textAlign: 'center'
-        }}>
-          {message}
+        <div
+          className="wa-cooldown-text"
+          aria-live="polite"
+          style={{
+            opacity: showCooldown ? 1 : 0,
+            transform: showCooldown ? 'translateY(0) scale(1)' : 'translateY(-4px) scale(0.92)',
+            transition: 'opacity 0.4s cubic-bezier(0.22, 1, 0.36, 1), transform 0.4s cubic-bezier(0.22, 1, 0.36, 1)',
+            pointerEvents: 'none',
+          }}
+        >
+          {showCooldown ? `${cooldownLeft}s` : '\u00a0'}
         </div>
-      )}
+        {!showCooldown && message ? (
+          <div style={{
+            position: 'absolute',
+            fontSize: '10px',
+            color: message.includes('success') ? '#28a745' : '#dc3545',
+            textAlign: 'center',
+            lineHeight: 1.2,
+            opacity: 1,
+            transition: 'opacity 0.35s ease',
+          }}>
+            {message}
+          </div>
+        ) : null}
+      </div>
+
+      <style jsx>{`
+        .wa-cooldown-text {
+          font-size: 11px;
+          font-weight: 800;
+          color: #c62828;
+          letter-spacing: 0.06em;
+          line-height: 1.2;
+          user-select: none;
+          padding: 2px 8px;
+          border-radius: 999px;
+          background: rgba(198, 40, 40, 0.08);
+        }
+      `}</style>
     </div>
   );
 };
 
-export default WhatsAppButton; 
+export default WhatsAppButton;

@@ -643,16 +643,17 @@ export default function JoinGoogleMeeting() {
                         backgroundColor: 'transparent'
                       }}
                       onMouseEnter={(e) => {
-                        e.target.style.color = '#009639';
-                        e.target.style.backgroundColor = '#e9ecef';
-                        e.target.style.textDecoration = 'underline';
+                        e.currentTarget.style.color = '#009639';
+                        e.currentTarget.style.backgroundColor = '#e9ecef';
+                        e.currentTarget.style.textDecoration = 'underline';
                       }}
                       onMouseLeave={(e) => {
-                        e.target.style.color = '#00AC47';
-                        e.target.style.backgroundColor = 'transparent';
-                        e.target.style.textDecoration = 'none';
+                        e.currentTarget.style.color = '#00AC47';
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                        e.currentTarget.style.textDecoration = 'none';
                       }}
                     >
+                      <Image src="/google-meet.svg" alt="Google Meet" width={18} height={18} />
                       Join Meeting
                     </a>
                   )}

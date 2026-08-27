@@ -7,6 +7,8 @@ import Image from 'next/image';
 import { useQuery } from '@tanstack/react-query';
 import apiClient from '../lib/axios';
 import { useNationalSystem, getCourseFieldLabels } from '../lib/api/system';
+import { useProfile } from '../lib/api/auth';
+import { useWaCooldown } from '../lib/waCooldown';
 
 export function SessionTable({ 
   data, 
@@ -40,6 +42,9 @@ export function SessionTable({
   const courseLabels = getCourseFieldLabels(isNational);
   const effectiveShowCourseType = showCourseType && courseLabels.showCourseType;
   const effectiveShowGrade = showGrade && courseLabels.showGradeField;
+  const { data: profile } = useProfile();
+  const senderId = profile?.id || profile?.username || profile?.email || null;
+  const { cooldownLeft: waCooldownLeft, cooldownStudentId: waCooldownStudentId, startCooldown: startWaCooldown } = useWaCooldown(senderId, 'session-table');
   const [scrolled, setScrolled] = useState(false);
   const [needsScroll, setNeedsScroll] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -388,6 +393,9 @@ export function SessionTable({
             student={student} 
             onMessageSent={handleMessageSent}
             onScoreUpdate={onScoreUpdate}
+            cooldownLeft={waCooldownLeft}
+            showCooldown={waCooldownLeft > 0 && waCooldownStudentId === student.id}
+            onCooldownStart={() => startWaCooldown(student.id)}
           />
         </Table.Td>
       )}

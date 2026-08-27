@@ -1,24 +1,35 @@
 import { useState, useEffect } from "react";
-import { useRouter } from "next/router";
 import Image from "next/image";
 import Title from "../../components/Title";
 import RoleSelect from "../../components/RoleSelect";
 import AccountStateSelect from "../../components/AccountStateSelect";
 import AddToContactAssistants from "../../components/AddToContactAssistants";
 import { useCreateAssistant, useCheckUsername } from '../../lib/api/assistants';
+import { useSystemConfig } from '../../lib/api/system';
 import PhoneInput from 'react-phone-input-2';
 import 'react-phone-input-2/lib/style.css';
 import { formatPhoneForDB, validateEgyptPhone, handleEgyptPhoneKeyDown } from '../../lib/phoneUtils';
 
+const ASSISTANT_CREDENTIALS_KEY = 'assistant_wa_credentials';
+
 export default function AddAssistant() {
-  const router = useRouter();
+  const { data: systemConfig } = useSystemConfig();
+  const systemName = systemConfig?.name || 'Demo Attendance System';
+  const systemDomain = (systemConfig?.domain || '').replace(/\/+$/, '') || (typeof window !== 'undefined' ? window.location.origin : '');
+
   const [form, setForm] = useState({ id: "", name: "", phone: "", email: "", password: "", role: "assistant", account_state: "Activated", ATCA: "no" });
   const [confirmPassword, setConfirmPassword] = useState("");
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
-  const [newId, setNewId] = useState(""); // Added for success message
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showWhatsAppSection, setShowWhatsAppSection] = useState(false);
+  const [savedCredentials, setSavedCredentials] = useState({
+    username: '',
+    password: '',
+    phone: '',
+    name: '',
+  });
 
   // React Query hooks
   const createAssistantMutation = useCreateAssistant();
@@ -45,9 +56,25 @@ export default function AddAssistant() {
     }
   }, [success]);
 
-
-
-
+  // Restore credentials section from sessionStorage if present
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(ASSISTANT_CREDENTIALS_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed?.username && parsed?.password) {
+        setSavedCredentials({
+          username: parsed.username,
+          password: parsed.password,
+          phone: parsed.phone || '',
+          name: parsed.name || '',
+        });
+        setShowWhatsAppSection(true);
+      }
+    } catch {
+      // ignore invalid session data
+    }
+  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -59,6 +86,28 @@ export default function AddAssistant() {
       setForm({ ...form, [name]: value });
     }
   };
+
+  const isPhoneFilled = (phone) => {
+    const formatted = formatPhoneForDB(phone);
+    return Boolean(formatted && formatted.length > 2);
+  };
+
+  const areRequiredFieldsFilled = () => {
+    if (!form.id?.trim()) return false;
+    if (!form.name?.trim()) return false;
+    if (!isPhoneFilled(form.phone)) return false;
+    if (!form.email?.trim()) return false;
+    if (!form.password?.trim()) return false;
+    if (!confirmPassword?.trim()) return false;
+    if (!form.role?.trim()) return false;
+    if (!form.account_state?.trim()) return false;
+    if (!form.ATCA?.trim()) return false;
+    return true;
+  };
+
+  const canSubmit =
+    areRequiredFieldsFilled() &&
+    !createAssistantMutation.isPending;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -117,13 +166,25 @@ export default function AddAssistant() {
     
     // Save phone with country code
     const payload = { ...trimmedForm, phone: assistantPhone };
+    const credentialsSnapshot = {
+      username: trimmedForm.id,
+      password: trimmedForm.password,
+      phone: assistantPhone,
+      name: trimmedForm.name,
+    };
     
     createAssistantMutation.mutate(payload, {
-      onSuccess: (data) => {
+      onSuccess: () => {
+        try {
+          sessionStorage.setItem(ASSISTANT_CREDENTIALS_KEY, JSON.stringify(credentialsSnapshot));
+        } catch {
+          // ignore storage errors
+        }
+        setSavedCredentials(credentialsSnapshot);
+        setShowWhatsAppSection(true);
         setSuccess(true);
         setForm({ id: "", name: "", phone: "", email: "", password: "", role: "assistant", account_state: "Activated", ATCA: "no" });
         setConfirmPassword("");
-        setNewId(data.assistant_id);
       },
       onError: (err) => {
         if (err.response?.status === 409) {
@@ -136,9 +197,64 @@ export default function AddAssistant() {
     });
   };
 
-  const handleCreateQR = () => {
-    if (newId) {
-      router.push(`/qr_code?id=${newId}`);
+  const handleSendWhatsApp = () => {
+    const username = savedCredentials.username;
+    const password = savedCredentials.password;
+    const phoneToUse = savedCredentials.phone;
+
+    if (!username || !password) {
+      setError('❌ Username or password not available');
+      return;
+    }
+
+    if (!phoneToUse) {
+      setError('❌ Assistant phone number not available');
+      return;
+    }
+
+    const websiteUrl = systemDomain || (typeof window !== 'undefined' ? window.location.origin : '');
+
+    const message = `${systemName} Full Application 🤩🔥
+
+🌐 Website URL : ${websiteUrl}
+
+👤 Username: ${username}
+🔑 Password: ${password}
+
+You can change your password anytime from the “Edit My Profile” page, available in the application once you’re logged in.
+
+To download the application 📱
+
+📱 Android → Open in Chrome → ⋮ Menu → Add to Home Screen
+
+🍏 iOS → Open in Safari → ⬆️ Share → Add to Home Screen
+
+Best regards, 
+ – ${systemName} ✨`;
+
+    // Same phone logic as WhatsAppButton
+    let phoneNumber = String(phoneToUse).replace(/[^0-9]/g, '');
+
+    if (!phoneNumber || phoneNumber.length < 3) {
+      setError('❌ Missing or invalid phone number');
+      return;
+    }
+
+    const startsWithEgyptLocalMobile =
+      phoneNumber.startsWith('010') ||
+      phoneNumber.startsWith('011') ||
+      phoneNumber.startsWith('012') ||
+      phoneNumber.startsWith('015');
+
+    if (startsWithEgyptLocalMobile) {
+      phoneNumber = `20${phoneNumber.substring(1)}`;
+    }
+
+    const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
+    const whatsappWindow = window.open(whatsappUrl, '_blank');
+
+    if (!whatsappWindow || whatsappWindow.closed || typeof whatsappWindow.closed === 'undefined') {
+      setError('❌ Could not open WhatsApp. Please allow pop-ups and try again.');
     }
   };
 
@@ -199,7 +315,7 @@ export default function AddAssistant() {
           .submit-btn {
             width: 100%;
             padding: 16px;
-            background: linear-gradient(135deg, #87CEEB 0%, #B0E0E6 100%);
+            background: linear-gradient(135deg, #15b0ef 0%, #15d0e7 100%);
             color: white;
             border: none;
             border-radius: 10px;
@@ -207,12 +323,21 @@ export default function AddAssistant() {
             font-weight: 600;
             cursor: pointer;
             transition: all 0.3s ease;
-            box-shadow: 0 4px 16px rgba(135, 206, 235, 0.3);
+            box-shadow: 0 4px 16px rgba(21, 176, 239, 0.35);
             margin-top: 8px;
           }
-          .submit-btn:hover {
+          .submit-btn:hover:not(:disabled) {
             transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(135, 206, 235, 0.4);
+            box-shadow: 0 6px 20px rgba(21, 176, 239, 0.45);
+          }
+          .submit-btn:disabled {
+            background: linear-gradient(135deg, #87ceeb 0%, #b0e0e6 100%);
+            color: rgba(255, 255, 255, 0.9);
+            opacity: 1;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+            filter: none;
           }
           .success-message {
             background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
@@ -265,6 +390,134 @@ export default function AddAssistant() {
             font-size: 0.8rem;
             margin-top: 4px;
             font-weight: 500;
+          }
+          .wa-container {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 249, 250, 0.95) 100%);
+            border-radius: 16px;
+            padding: 28px;
+            margin-top: 24px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+            border: 2px solid rgba(37, 211, 102, 0.25);
+            box-sizing: border-box;
+            width: 100%;
+          }
+          .wa-title {
+            color: #495057;
+            font-size: 1.35rem;
+            font-weight: 700;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+          }
+          .wa-info-item {
+            background: #ffffff;
+            padding: 16px 20px;
+            border-radius: 12px;
+            border: 1px solid #e9ecef;
+            border-left: 4px solid #25D366;
+            margin-bottom: 16px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            min-width: 0;
+          }
+          .wa-info-label {
+            font-size: 0.9rem;
+            color: #6c757d;
+            font-weight: 600;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+          }
+          .wa-info-value {
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: #128C7E;
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', 'Courier New', monospace;
+            word-break: break-all;
+          }
+          .wa-instruction {
+            color: #6c757d;
+            font-size: 0.95rem;
+            font-weight: 500;
+            margin-bottom: 20px;
+            text-align: center;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            line-height: 1.45;
+          }
+          .whatsapp-wa-btn {
+            background: rgb(37, 211, 102);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            padding: 14px 28px;
+            font-weight: 700;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 6px 20px rgba(37, 211, 102, 0.35);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+            min-height: 48px;
+          }
+          .whatsapp-wa-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(37, 211, 102, 0.45);
+          }
+          .whatsapp-wa-btn:active {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 15px rgba(37, 211, 102, 0.4);
+          }
+          @media (max-width: 768px) {
+            .form-container {
+              padding: 20px 16px;
+            }
+            .wa-container {
+              padding: 20px 14px;
+              margin-top: 18px;
+              border-radius: 14px;
+            }
+            .wa-title {
+              font-size: 1.15rem;
+              gap: 8px;
+            }
+            .wa-info-item {
+              padding: 14px 14px;
+            }
+            .wa-info-value {
+              font-size: 1.05rem;
+            }
+            .whatsapp-wa-btn {
+              padding: 14px 16px;
+              font-size: 0.98rem;
+            }
+          }
+          @media (max-width: 480px) {
+            .form-container {
+              padding: 16px 12px;
+            }
+            .wa-container {
+              padding: 16px 12px;
+            }
+            .wa-title {
+              font-size: 1.05rem;
+            }
+            .wa-instruction {
+              font-size: 0.88rem;
+              padding: 10px;
+            }
+            .whatsapp-wa-btn {
+              padding: 13px 12px;
+              font-size: 0.95rem;
+              gap: 8px;
+            }
           }
         `}</style>
                  <Title 
@@ -474,8 +727,10 @@ export default function AddAssistant() {
             />
             <button 
               type="submit" 
-              disabled={createAssistantMutation.isPending || (!usernameCheck.isLoading && usernameCheck.data && usernameCheck.data.exists)} 
+              disabled={!canSubmit}
               className="submit-btn"
+              title={canSubmit ? 'Add assistant' : 'Fill all required fields to enable'}
+              aria-disabled={!canSubmit}
             >
               {createAssistantMutation.isPending ? "Adding..." : "Add Assistant"}
             </button>
@@ -487,7 +742,36 @@ export default function AddAssistant() {
             <div className="error-message">{error}</div>
           )}
         </div>
+
+        {showWhatsAppSection && savedCredentials.username && savedCredentials.password && (
+          <div className="wa-container">
+            <div className="wa-title">
+              <Image src="/whatsapp2.svg" alt="WhatsApp" width={24} height={24} />
+              Send Login Credentials
+            </div>
+            <div className="wa-info-item">
+              <div className="wa-info-label">Username</div>
+              <div className="wa-info-value">{savedCredentials.username}</div>
+            </div>
+            <div className="wa-info-item">
+              <div className="wa-info-label">Password</div>
+              <div className="wa-info-value">{savedCredentials.password}</div>
+            </div>
+            <div className="wa-instruction">
+              Send the assistant their login details via WhatsApp
+            </div>
+            <button
+              type="button"
+              onClick={handleSendWhatsApp}
+              className="whatsapp-wa-btn"
+              title="Send credentials via WhatsApp"
+            >
+              <Image src="/whatsapp2.svg" alt="WhatsApp" width={20} height={20} />
+              Send WhatsApp
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
-} 
+}

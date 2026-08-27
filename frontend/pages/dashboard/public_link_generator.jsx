@@ -20,6 +20,24 @@ export default function GenerateLink() {
   // Get all students for search functionality
   const { data: allStudents } = useStudents({});
 
+  const openWhatsApp = (phoneRaw, message) => {
+    let formattedPhone = String(phoneRaw || '').replace(/[^0-9]/g, '');
+    if (!formattedPhone) return;
+
+    const startsWithEgyptLocalMobile =
+      formattedPhone.startsWith('010') ||
+      formattedPhone.startsWith('011') ||
+      formattedPhone.startsWith('012') ||
+      formattedPhone.startsWith('015');
+
+    if (startsWithEgyptLocalMobile) {
+      formattedPhone = `20${formattedPhone.substring(1)}`;
+    }
+
+    const whatsappUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`;
+    window.open(whatsappUrl, '_blank');
+  };
+
   const handleGenerate = (e) => {
     e.preventDefault();
     if (!studentId.trim()) return;
@@ -801,22 +819,11 @@ export default function GenerateLink() {
                     {selectedStudent.phone ? (
                       <button
                         className="whatsapp-btn"
+                        title="Send WhatsApp"
                         onClick={() => {
-                          // Use phone number as stored in DB
-                          let formattedPhone = selectedStudent.phone.replace(/[^0-9]/g, '');
-                          
-                          // Auto-convert only local Egyptian mobile numbers; keep other international numbers as-is.
-                          const startsWithEgyptLocalMobile =
-                            formattedPhone.startsWith('010') ||
-                            formattedPhone.startsWith('011') ||
-                            formattedPhone.startsWith('012') ||
-                            formattedPhone.startsWith('015');
-
-                          if (startsWithEgyptLocalMobile) {
-                            formattedPhone = `20${formattedPhone.substring(1)}`;
-                          }
-                          
-                          const message = `Follow up Message:
+                          openWhatsApp(
+                            selectedStudent.phone,
+                            `Follow up Message:
 
 Dear ${selectedStudent.name?.split(' ')[0] || 'Student'},
 If you want to keep track of your attendance, homework, and quizzes results.
@@ -826,12 +833,11 @@ Just click the link below to stay updated:
 
 We wish you gets high scores 😊❤
 
-– ${systemName}`;
-                          const whatsappUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`;
-                          window.open(whatsappUrl, '_blank');
+– ${systemName}`
+                          );
                         }}
                         style={{
-                          backgroundColor: '#25D366',
+                          backgroundColor: 'rgb(37, 211, 102)',
                           color: 'white',
                           border: 'none',
                           borderRadius: '8px',
@@ -842,10 +848,10 @@ We wish you gets high scores 😊❤
                           alignItems: 'center',
                           gap: '8px',
                           fontWeight: '600',
-                          transition: 'background-color 0.2s',
                           width: '100%',
                           justifyContent: 'center',
-                          margin: '0 auto'
+                          margin: '0 auto',
+                          boxShadow: '0 4px 14px rgba(37, 211, 102, 0.32)',
                         }}
                       >
                         <Image src="/whatsapp.svg" alt="WhatsApp" width={30} height={30} />
@@ -870,23 +876,11 @@ We wish you gets high scores 😊❤
                     {(selectedStudent.parents_phone || selectedStudent.parentsPhone || selectedStudent.parentsPhone1) ? (
                       <button
                         className="whatsapp-btn"
+                        title="Send WhatsApp"
                         onClick={() => {
-                          // Use phone number as stored in DB
-                          let phoneNumber = (selectedStudent.parents_phone || selectedStudent.parentsPhone || selectedStudent.parentsPhone1).replace(/[^0-9]/g, '');
-                          
-                          // Auto-convert only local Egyptian mobile numbers; keep other international numbers as-is.
-                          const startsWithEgyptLocalMobile =
-                            phoneNumber.startsWith('010') ||
-                            phoneNumber.startsWith('011') ||
-                            phoneNumber.startsWith('012') ||
-                            phoneNumber.startsWith('015');
-
-                          if (startsWithEgyptLocalMobile) {
-                            phoneNumber = `20${phoneNumber.substring(1)}`;
-                          }
-                          
-                          const formattedPhone = phoneNumber;
-                          const message = `Follow up Message:
+                          openWhatsApp(
+                            selectedStudent.parents_phone || selectedStudent.parentsPhone || selectedStudent.parentsPhone1,
+                            `Follow up Message:
 
 Dear ${selectedStudent.name?.split(' ')[0] || 'Student'}'s Parent,
 If you'd like to track ${selectedStudent.name?.split(' ')[0] || 'Student'}'s attendance, homework, and quizzes, please visit the link below:
@@ -895,12 +889,11 @@ If you'd like to track ${selectedStudent.name?.split(' ')[0] || 'Student'}'s att
 
 We wish ${selectedStudent.name?.split(' ')[0] || 'Student'} gets high scores 😊❤
 
-– ${systemName}`;
-                          const whatsappUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`;
-                          window.open(whatsappUrl, '_blank');
+– ${systemName}`
+                          );
                         }}
                         style={{
-                          backgroundColor: '#25D366',
+                          backgroundColor: 'rgb(37, 211, 102)',
                           color: 'white',
                           border: 'none',
                           borderRadius: '8px',
@@ -911,10 +904,10 @@ We wish ${selectedStudent.name?.split(' ')[0] || 'Student'} gets high scores �
                           alignItems: 'center',
                           gap: '8px',
                           fontWeight: '600',
-                          transition: 'background-color 0.2s',
                           width: '100%',
                           justifyContent: 'center',
-                          margin: '0 auto'
+                          margin: '0 auto',
+                          boxShadow: '0 4px 14px rgba(37, 211, 102, 0.32)',
                         }}
                       >
                         <Image src="/whatsapp.svg" alt="WhatsApp" width={30} height={30} />

@@ -2,12 +2,13 @@ import { MongoClient, ObjectId } from 'mongodb';
 import fs from 'fs';
 import path from 'path';
 import { authMiddleware } from '../../../../lib/authMiddleware';
-import { mergeStudentLesson } from '../../../../lib/studentLessons';
+import { mergeStudentLesson, getStudentLesson } from '../../../../lib/studentLessons';
 import {
   FREE_ONLINE_SESSION_PAYMENT_STATES,
   isFreeViewingAccessValid,
   syncFreeViewingEntryWithSession,
   getFreeViewsRemaining,
+  attendedInCenter,
 } from '../../../../lib/onlineSessionViewing';
 import { formatEgyptDateTime } from '../../../../lib/egyptDateTime';
 
@@ -131,15 +132,27 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Free viewing access only applies to free sessions' });
       }
 
+      const lessonData = getStudentLesson(student.lessons, session.lesson);
+      // number_of_days free access requires center attendance (not Online)
+      if (
+        session.viewing_limit_type === 'number_of_days' &&
+        !attendedInCenter(lessonData)
+      ) {
+        return res.status(403).json({
+          error: 'Free day access requires center attendance for this lesson',
+          require_vvc: true,
+        });
+      }
+
       const existingIdx = findFreeEntryIndex();
       const existingEntry = existingIdx >= 0 ? onlineSessions[existingIdx] : null;
 
       // Re-sync stored entry with current session limits (admin may have increased views/days)
       const syncedEntry = existingEntry
-        ? syncFreeViewingEntryWithSession(session, existingEntry)
+        ? syncFreeViewingEntryWithSession(session, existingEntry, lessonData)
         : null;
 
-      if (!isFreeViewingAccessValid(session, syncedEntry || existingEntry)) {
+      if (!isFreeViewingAccessValid(session, syncedEntry || existingEntry, lessonData)) {
         // Mark expired so client treats session as paid (VVC required)
         if (syncedEntry && syncedEntry.free_access_expired !== true) {
           const expiredEntry = {
@@ -216,7 +229,7 @@ export default async function handler(req, res) {
         ) {
           entryToReturn.first_viewed_at = entryToReturn.first_opened_at;
         }
-        entryToReturn = syncFreeViewingEntryWithSession(session, entryToReturn);
+        entryToReturn = syncFreeViewingEntryWithSession(session, entryToReturn, lessonData);
       }
 
       const changed =
@@ -243,7 +256,12 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Free viewing access not started' });
       }
 
-      const entry = syncFreeViewingEntryWithSession(session, onlineSessions[existingIdx]);
+      const lessonDataForViews = getStudentLesson(student.lessons, session.lesson);
+      const entry = syncFreeViewingEntryWithSession(
+        session,
+        onlineSessions[existingIdx],
+        lessonDataForViews
+      );
       const limit = Number(session.viewing_limit_value) || 0;
       const used = Number(entry.views_used ?? 0) || 0;
       // Always derive from current session limit so increased limits grant leftover views

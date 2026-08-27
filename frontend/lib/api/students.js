@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../axios';
+import { formatPhoneForDB } from '../phoneUtils';
 
 // Query keys for students
 export const studentKeys = {
@@ -63,6 +64,17 @@ const studentsApi = {
   // Create new student
   create: async (studentData) => {
     const response = await apiClient.post('/api/students', studentData);
+    return response.data;
+  },
+
+  // Check if student phone already exists
+  checkPhoneExists: async (phone, excludeId) => {
+    const params = new URLSearchParams();
+    params.append('phone', phone);
+    if (excludeId !== undefined && excludeId !== null && String(excludeId).trim() !== '') {
+      params.append('excludeId', String(excludeId));
+    }
+    const response = await apiClient.get(`/api/students/check-phone?${params.toString()}`);
     return response.data;
   },
 
@@ -205,6 +217,22 @@ export const useStudentPublic = (id, signature, options = {}) => {
     queryFn: () => studentsApi.getByIdPublic(id, signature),
     enabled: !!id && !!signature,
     ...options, // Spread the options to allow custom configuration
+  });
+};
+
+export const useCheckStudentPhone = (phone, excludeId = null, options = {}) => {
+  const normalized = formatPhoneForDB(phone);
+  const ready = normalized.length >= 11;
+
+  return useQuery({
+    queryKey: [...studentKeys.all, 'check-phone', normalized, excludeId ?? null],
+    queryFn: () => studentsApi.checkPhoneExists(normalized, excludeId),
+    enabled: ready,
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
+    retry: 1,
+    ...options,
   });
 };
 

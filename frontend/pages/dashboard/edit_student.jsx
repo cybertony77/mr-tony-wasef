@@ -9,7 +9,7 @@ import CourseTypeSelect from '../../components/CourseTypeSelect';
 import AccountStateSelect from '../../components/AccountStateSelect';
 import GenderSelect from '../../components/GenderSelect';
 import Title from '../../components/Title';
-import { useStudents, useStudent, useUpdateStudent } from '../../lib/api/students';
+import { useStudents, useStudent, useUpdateStudent, useCheckStudentPhone } from '../../lib/api/students';
 import { useNationalSystem, getCourseFieldLabels } from '../../lib/api/system';
 import PhoneInput from 'react-phone-input-2';
 import 'react-phone-input-2/lib/style.css';
@@ -45,6 +45,20 @@ export default function EditStudent() {
   const { data: allStudents } = useStudents();
   const { data: student, isLoading: studentLoading, error: studentError } = useStudent(searchId, { enabled: !!searchId });
   const updateStudentMutation = useUpdateStudent();
+  const phoneCheck = useCheckStudentPhone(formData.phone, searchId || null);
+  const phoneReady = formatPhoneForDB(formData.phone).length >= 11;
+  const originalPhoneNormalized = formatPhoneForDB(originalStudent?.phone || '');
+  const currentPhoneNormalized = formatPhoneForDB(formData.phone || '');
+  const phoneUnchanged = Boolean(originalPhoneNormalized) && originalPhoneNormalized === currentPhoneNormalized;
+  const phoneTaken =
+    phoneReady &&
+    !phoneUnchanged &&
+    !phoneCheck.isLoading &&
+    phoneCheck.data?.exists === true;
+  const phoneAvailable =
+    phoneReady &&
+    !phoneCheck.isLoading &&
+    (phoneUnchanged || phoneCheck.data?.exists === false);
   useEffect(() => {
     if (error) {
       const timer = setTimeout(() => setError(""), 5000);
@@ -273,10 +287,46 @@ export default function EditStudent() {
     return Object.keys(formData).some(key => formData[key] !== originalStudent[key]);
   };
 
+  const isPhoneFilled = (phone) => {
+    const formatted = formatPhoneForDB(phone);
+    return Boolean(formatted && formatted.length > 2);
+  };
+
+  const areRequiredFieldsFilled = () => {
+    if (!formData || !originalStudent) return false;
+    if (!String(formData.name || '').trim()) return false;
+    if (!String(formData.gender || '').trim()) return false;
+    if (!isNational && !String(formData.grade || '').trim()) return false;
+    if (!String(formData.course || '').trim()) return false;
+    if (!isNational && !String(formData.courseType || '').trim()) return false;
+    if (!String(formData.school || '').trim()) return false;
+    if (!isPhoneFilled(formData.phone) || !isPhoneFilled(formData.parents_phone)) return false;
+    if (!String(formData.main_center || '').trim()) return false;
+    if (!String(formData.account_state || '').trim()) return false;
+    if (hasExistingEmail && !String(formData.email || '').trim()) return false;
+    return true;
+  };
+
+  const canSubmit =
+    hasChanges() &&
+    areRequiredFieldsFilled() &&
+    !updateStudentMutation.isPending &&
+    !phoneTaken &&
+    !(phoneReady && !phoneUnchanged && phoneCheck.isLoading);
+
   const handleEdit = async (e) => {
     e.preventDefault();
     setError("");
     setSuccess(false);
+
+    if (phoneTaken) {
+      setError("This phone number is already used by another student");
+      return;
+    }
+    if (phoneReady && !phoneUnchanged && (phoneCheck.isLoading || !phoneCheck.data)) {
+      setError("Please wait while we check the phone number");
+      return;
+    }
     
     // Check if there are any changes
     if (!hasChanges()) {
@@ -529,20 +579,54 @@ export default function EditStudent() {
           justify-content: center;
           gap: 8px;
         }
-        .submit-btn:hover {
+        .submit-btn:hover:not(:disabled) {
           transform: translateY(-3px);
           box-shadow: 0 8px 25px rgba(40, 167, 69, 0.4);
           background: linear-gradient(135deg, #1e7e34 0%, #17a2b8 100%);
         }
-        .submit-btn:active {
+        .submit-btn:active:not(:disabled) {
           transform: translateY(-1px);
           box-shadow: 0 4px 16px rgba(40, 167, 69, 0.3);
         }
         .submit-btn:disabled {
-          opacity: 0.6;
+          background: linear-gradient(135deg, #9aa5b1 0%, #b0b8c1 100%);
+          color: rgba(255, 255, 255, 0.85);
+          opacity: 0.7;
           cursor: not-allowed;
           transform: none;
-          box-shadow: 0 2px 8px rgba(40, 167, 69, 0.2);
+          box-shadow: none;
+          filter: grayscale(0.35);
+        }
+        .phone-feedback {
+          margin-top: 8px;
+          font-size: 0.9rem;
+          padding: 8px 12px;
+          border-radius: 6px;
+          font-weight: 500;
+        }
+        .phone-feedback.checking {
+          background: #f8f9fa;
+          color: #6c757d;
+          border: 1px solid #dee2e6;
+        }
+        .phone-feedback.taken {
+          background: #f8d7da;
+          color: #721c24;
+          border: 1px solid #f5c6cb;
+        }
+        .phone-feedback.available {
+          background: #d4edda;
+          color: #155724;
+          border: 1px solid #c3e6cb;
+        }
+        .error-border {
+          border-color: #dc3545 !important;
+          box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.1) !important;
+        }
+        :global(.phone-error .form-control),
+        :global(.phone-input.error-border) {
+          border-color: #dc3545 !important;
+          box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.1) !important;
         }
         .form-row {
           display: grid;
@@ -831,12 +915,31 @@ export default function EditStudent() {
                   handleChange({ target: { name: 'phone', value: validation.value } });
                   }}
                   onKeyDown={(e) => handleEgyptPhoneKeyDown(e, formData.phone)}
-                  containerClass="phone-container"
-                  inputClass="phone-input"
+                  containerClass={`phone-container ${phoneTaken ? 'phone-error' : ''}`}
+                  inputClass={`phone-input ${phoneTaken ? 'error-border' : ''}`}
                   buttonClass="phone-flag-btn"
                   dropdownClass="phone-dropdown"
                   placeholder="Enter Phone Number"
                 />
+                {phoneReady && (
+                  <div>
+                    {!phoneUnchanged && phoneCheck.isLoading && (
+                      <div className="phone-feedback checking">
+                        🔍 Checking availability...
+                      </div>
+                    )}
+                    {phoneTaken && (
+                      <div className="phone-feedback taken">
+                        ❌ This phone number is already used, use another one
+                      </div>
+                    )}
+                    {phoneAvailable && (
+                      <div className="phone-feedback available">
+                        ✅ This phone number is available
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="form-group">
               <label>Parent's Phone (Whatsapp) <span style={{color: 'red'}}>*</span></label>
@@ -884,7 +987,19 @@ export default function EditStudent() {
                 style={{ resize: 'vertical' }}
               />
             </div>
-            <button type="submit" className="submit-btn" disabled={!hasChanges() || updateStudentMutation.isPending}>
+            <button
+              type="submit"
+              className="submit-btn"
+              disabled={!canSubmit}
+              title={
+                !areRequiredFieldsFilled()
+                  ? 'Fill all required fields to enable'
+                  : !hasChanges()
+                    ? 'Make a change to enable update'
+                    : 'Update student'
+              }
+              aria-disabled={!canSubmit}
+            >
               {updateStudentMutation.isPending ? "Saving..." : "✏️ Update Student"}
             </button>
           </form>

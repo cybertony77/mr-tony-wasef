@@ -194,6 +194,29 @@ export default function EditAssistant() {
     return Object.keys(form).some(key => form[key] !== originalForm[key]);
   };
 
+  const isPhoneFilled = (phone) => {
+    const formatted = formatPhoneForDB(phone);
+    return Boolean(formatted && formatted.length > 2);
+  };
+
+  const areRequiredFieldsFilled = () => {
+    if (!form || !originalForm) return false;
+    if (!form.id?.trim()) return false;
+    if (!form.name?.trim()) return false;
+    if (!isPhoneFilled(form.phone)) return false;
+    if (!form.email?.trim()) return false;
+    // Password optional on edit; if typed, confirm must also be filled
+    if (form.password?.trim() && !confirmPassword?.trim()) return false;
+    if (!form.role?.trim()) return false;
+    if (!form.account_state?.trim()) return false;
+    return true;
+  };
+
+  const canSubmit =
+    hasChanges() &&
+    areRequiredFieldsFilled() &&
+    !updateAssistantMutation.isPending;
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
@@ -459,10 +482,13 @@ export default function EditAssistant() {
             box-shadow: 0 6px 20px rgba(135, 206, 235, 0.4);
           }
           .submit-btn:disabled {
-            opacity: 0.6;
+            background: linear-gradient(135deg, #9aa5b1 0%, #b0b8c1 100%);
+            color: rgba(255, 255, 255, 0.85);
+            opacity: 0.7;
             cursor: not-allowed;
             transform: none;
-            box-shadow: 0 2px 8px rgba(135, 206, 235, 0.2);
+            box-shadow: none;
+            filter: grayscale(0.35);
           }
           .success-message {
             background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
@@ -815,9 +841,21 @@ export default function EditAssistant() {
                 onChange={(value) => setForm({ ...form, ATCA: value })}
                 required={false}
               />
-              <button type="submit" disabled={updateAssistantMutation.isPending || !hasChanges()} className="submit-btn">
+              <button
+                type="submit"
+                disabled={!canSubmit}
+                className="submit-btn"
+                title={
+                  !areRequiredFieldsFilled()
+                    ? 'Fill all required fields to enable'
+                    : !hasChanges()
+                      ? 'Make a change to enable update'
+                      : 'Save changes'
+                }
+                aria-disabled={!canSubmit}
+              >
                 {updateAssistantMutation.isPending ? "Saving..." : "Save Changes"}
-        </button>
+              </button>
             </form>
           </div>
         )}

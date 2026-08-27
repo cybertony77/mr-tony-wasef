@@ -190,7 +190,39 @@ export default async function handler(req, res) {
         update.courseType = courseType === '' ? null : courseType;
       }
       if (phone !== undefined && phone !== null) {
-        update.phone = phone;
+        const normalizePhone = (phoneValue) => {
+          if (!phoneValue) return '';
+          let p = String(phoneValue).replace(/[^0-9]/g, '');
+          if (p.match(/^(012|011|010|015)/)) {
+            p = '20' + p.substring(1);
+          }
+          if (p.startsWith('20') && p.length > 2 && p[2] === '0') {
+            p = '20' + p.substring(3);
+          }
+          return p;
+        };
+        const phoneVariants = (normalized) => {
+          const variants = new Set([normalized]);
+          if (normalized.startsWith('20') && normalized.length > 2) {
+            const local = normalized.substring(2);
+            variants.add(local);
+            variants.add('0' + local);
+          }
+          return Array.from(variants).filter(Boolean);
+        };
+
+        const normalizedPhone = normalizePhone(phone);
+        if (!normalizedPhone || normalizedPhone.length < 8) {
+          return res.status(400).json({ error: 'Please enter a valid student phone number' });
+        }
+        const phoneTaken = await db.collection('students').findOne({
+          phone: { $in: phoneVariants(normalizedPhone) },
+          id: { $ne: student_id },
+        });
+        if (phoneTaken) {
+          return res.status(409).json({ error: 'This phone number is already used by another student' });
+        }
+        update.phone = normalizedPhone;
       }
       if (parents_phone !== undefined && parents_phone !== null) {
         update.parentsPhone = parents_phone;

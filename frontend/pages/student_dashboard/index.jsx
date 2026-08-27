@@ -5,6 +5,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useProfile } from '../../lib/api/auth';
 import { useStudent } from '../../lib/api/students';
 import { useSystemConfig, isFeatureEnabled, useNationalSystem } from '../../lib/api/system';
+import { useDesmosConfig } from '../../lib/api/desmosConfig';
+import { isDesmosVisibleForStudent, resolveStudentCourse } from '../../lib/desmosConfigUtils';
 import apiClient from '../../lib/axios';
 import DashboardButtonsSkeleton from '../../components/DashboardButtonsSkeleton';
 import DesmosQuestionAssist from '../../components/student/DesmosQuestionAssist';
@@ -449,7 +451,8 @@ export default function StudentDashboard() {
   const isGoogleJoinMeetingEnabled = isFeatureEnabled(systemConfig, 'google_join_meeting');
   const isPaymentSystemEnabled = isFeatureEnabled(systemConfig, 'payment_system');
   const isDesmosEnabled = isFeatureEnabled(systemConfig, 'desmos_integrations');
-  
+  const { data: desmosConfigData } = useDesmosConfig({ enabled: isDesmosEnabled });
+
   // Get student ID from profile and fetch student data
   const studentId = profile?.id ? profile.id.toString() : null;
   const { data: studentData, isLoading: studentLoading, refetch: refetchStudent } = useStudent(studentId, { 
@@ -461,6 +464,15 @@ export default function StudentDashboard() {
     refetchInterval: 8000,
     refetchIntervalInBackground: false,
   });
+
+  const showDesmosCalculator =
+    isDesmosEnabled &&
+    isDesmosVisibleForStudent(
+      desmosConfigData?.items,
+      resolveStudentCourse(studentData),
+      studentData?.courseType,
+      isNational
+    );
   
   // Fetch centers data
   const { data: centers = [], isLoading: centersLoading } = useQuery({
@@ -1495,17 +1507,7 @@ export default function StudentDashboard() {
                 </button>
               )}
 
-              {isCertificatesEnabled && (
-                <button
-                  className="dashboard-btn certificate-btn"
-                  onClick={() => router.push("/student_dashboard/my_certificates")}
-                >
-                  <Image src="/certificate.svg" alt="My Certificates" width={20} height={20} />
-                  My Certificates
-                </button>
-              )}
-
-              {isDesmosEnabled && (
+              {showDesmosCalculator && (
                 <DesmosQuestionAssist
                   standalone
                   instanceKey="student-dashboard-desmos"
@@ -1524,6 +1526,16 @@ export default function StudentDashboard() {
                     ) : null
                   }
                 </DesmosQuestionAssist>
+              )}
+
+              {isCertificatesEnabled && (
+                <button
+                  className="dashboard-btn certificate-btn"
+                  onClick={() => router.push("/student_dashboard/my_certificates")}
+                >
+                  <Image src="/certificate.svg" alt="My Certificates" width={20} height={20} />
+                  My Certificates
+                </button>
               )}
 
               <button

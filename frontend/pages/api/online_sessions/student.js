@@ -115,10 +115,20 @@ export default async function handler(req, res) {
       console.log('✅ Filtered sessions count:', filteredSessions.length);
       
       const sessionsWithAttendance = filteredSessions.map((session) => {
-        if (session.payment_state === 'free_if_attended_in_center' && session.lesson) {
+        const needsCenterAttendance =
+          (session.payment_state === 'free_if_attended_in_center' ||
+            (session.payment_state === 'free' &&
+              session.viewing_limit_type === 'number_of_days')) &&
+          session.lesson;
+
+        if (needsCenterAttendance) {
           const lessonData = getStudentLesson(studentLessons, session.lesson);
           const attended = attendedInCenter(lessonData);
-          return { ...session, _isFreeIfAttendedInCenter: true, _attendedInCenter: attended };
+          return {
+            ...session,
+            _isFreeIfAttendedInCenter: session.payment_state === 'free_if_attended_in_center',
+            _attendedInCenter: attended,
+          };
         }
         return session;
       });

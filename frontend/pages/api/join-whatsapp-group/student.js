@@ -72,6 +72,10 @@ export default async function handler(req, res) {
     const studentGender = (student.gender || '').trim();
     
     const matchingGroups = allGroups.filter(group => {
+      // Only Activated groups are visible to students (missing state = Activated for older records)
+      const groupState = (group.group_state || 'Activated').trim().toLowerCase();
+      if (groupState !== 'activated') return false;
+
       const groupCourse = (group.course || '').trim();
       const groupCourseType = (group.courseType || '').trim();
       const groupCenter = (group.center || '').trim();

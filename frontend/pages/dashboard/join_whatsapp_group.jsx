@@ -7,6 +7,7 @@ import Title from '../../components/Title';
 import CourseSelect from '../../components/CourseSelect';
 import CourseTypeSelect from '../../components/CourseTypeSelect';
 import CenterSelect from '../../components/CenterSelect';
+import AccountStateSelect from '../../components/AccountStateSelect';
 import { useSystemConfig , useNationalSystem, getCourseFieldLabels} from '../../lib/api/system';
 
 // API functions
@@ -141,6 +142,8 @@ export default function JoinWhatsappGroup() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { data: systemConfig } = useSystemConfig();
+  const isNational = useNationalSystem();
+  const courseLabels = getCourseFieldLabels(isNational);
   const isWhatsAppJoinGroupEnabled = systemConfig?.whatsapp_join_group_btn === true || systemConfig?.whatsapp_join_group_btn === 'true';
   
   // Redirect if feature is disabled
@@ -156,6 +159,7 @@ export default function JoinWhatsappGroup() {
   const [newCourseType, setNewCourseType] = useState('');
   const [newCenter, setNewCenter] = useState('');
   const [newGender, setNewGender] = useState('');
+  const [newGroupState, setNewGroupState] = useState('Activated');
   const [newLink, setNewLink] = useState('');
   const [newCourseOpen, setNewCourseOpen] = useState(false);
   const [newCourseTypeOpen, setNewCourseTypeOpen] = useState(false);
@@ -168,6 +172,7 @@ export default function JoinWhatsappGroup() {
   const [editCourseType, setEditCourseType] = useState('');
   const [editCenter, setEditCenter] = useState('');
   const [editGender, setEditGender] = useState('');
+  const [editGroupState, setEditGroupState] = useState('Activated');
   const [editLink, setEditLink] = useState('');
   const [editCourseOpen, setEditCourseOpen] = useState(false);
   const [editCourseTypeOpen, setEditCourseTypeOpen] = useState(false);
@@ -205,6 +210,7 @@ export default function JoinWhatsappGroup() {
         setNewCourseType('');
         setNewCenter('');
         setNewGender('');
+        setNewGroupState('Activated');
         setNewLink('');
         setShowAddSuccess(false);
       }, 2000);
@@ -228,6 +234,7 @@ export default function JoinWhatsappGroup() {
         setEditCourseType('');
         setEditCenter('');
         setEditGender('');
+        setEditGroupState('Activated');
         setEditLink('');
         setShowEditSuccess(false);
       }, 2000);
@@ -273,8 +280,8 @@ export default function JoinWhatsappGroup() {
   }, [showEditSuccess]);
 
   const handleAddGroup = () => {
-    if (!newTitle.trim() || !newCourse || !newGender || !newLink.trim()) {
-      setError(`Title, ${courseLabels.course}, Gender, and Link are required`);
+    if (!newTitle.trim() || !newCourse || !newGender || !newLink.trim() || !newGroupState) {
+      setError(`Title, ${courseLabels.course}, Gender, Group State, and Link are required`);
       return;
     }
     
@@ -289,6 +296,7 @@ export default function JoinWhatsappGroup() {
       courseType: newCourseType || null,
       center: newCenter || '',
       gender: newGender,
+      group_state: newGroupState,
       link: newLink.trim()
     });
   };
@@ -300,13 +308,14 @@ export default function JoinWhatsappGroup() {
     setEditCourseType(group.courseType || '');
     setEditCenter(group.center || '');
     setEditGender(group.gender || '');
+    setEditGroupState(group.group_state || 'Activated');
     setEditLink(group.link || '');
     setError('');
   };
 
   const handleUpdateGroup = () => {
-    if (!editTitle.trim() || !editCourse || !editGender || !editLink.trim()) {
-      setError(`Title, ${courseLabels.course}, Gender, and Link are required`);
+    if (!editTitle.trim() || !editCourse || !editGender || !editLink.trim() || !editGroupState) {
+      setError(`Title, ${courseLabels.course}, Gender, Group State, and Link are required`);
       return;
     }
     
@@ -323,6 +332,7 @@ export default function JoinWhatsappGroup() {
         courseType: editCourseType || null,
         center: editCenter || '',
         gender: editGender,
+        group_state: editGroupState,
         link: editLink.trim()
       }
     });
@@ -353,6 +363,7 @@ export default function JoinWhatsappGroup() {
     setEditCourseType('');
     setEditCenter('');
     setEditGender('');
+    setEditGroupState('Activated');
     setEditLink('');
     setError('');
   };
@@ -364,6 +375,7 @@ export default function JoinWhatsappGroup() {
     setNewCourseType('');
     setNewCenter('');
     setNewGender('');
+    setNewGroupState('Activated');
     setNewLink('');
     setError('');
   };
@@ -552,6 +564,15 @@ export default function JoinWhatsappGroup() {
                     <span style={{ color: '#666', fontSize: '0.9rem' }}>
                       <strong>Gender:</strong> {group.gender}
                     </span>
+                    <span style={{ color: '#666', fontSize: '0.9rem' }}>
+                      <strong>Group State:</strong>{' '}
+                      <span style={{
+                        color: (group.group_state || 'Activated') === 'Deactivated' ? '#dc3545' : '#28a745',
+                        fontWeight: 700,
+                      }}>
+                        {group.group_state || 'Activated'}
+                      </span>
+                    </span>
                   </div>
                   {group.link && (
                     <a
@@ -572,17 +593,17 @@ export default function JoinWhatsappGroup() {
                         backgroundColor: 'transparent'
                       }}
                       onMouseEnter={(e) => {
-                        e.target.style.color = '#0d5a7a';
-                        e.target.style.backgroundColor = '#e9ecef';
-                        e.target.style.textDecoration = 'underline';
+                        e.currentTarget.style.color = '#0d5a7a';
+                        e.currentTarget.style.backgroundColor = '#e9ecef';
+                        e.currentTarget.style.textDecoration = 'underline';
                       }}
                       onMouseLeave={(e) => {
-                        e.target.style.color = '#1FA8DC';
-                        e.target.style.backgroundColor = 'transparent';
-                        e.target.style.textDecoration = 'none';
+                        e.currentTarget.style.color = '#1FA8DC';
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                        e.currentTarget.style.textDecoration = 'none';
                       }}
                     >
-                      <Image src="/message.svg" alt="Link" width={18} height={18} />
+                      <Image src="/whatsapp2.svg" alt="WhatsApp" width={18} height={18} />
                       Join Group
                     </a>
                   )}
@@ -827,6 +848,17 @@ export default function JoinWhatsappGroup() {
                   onClose={() => setNewGenderOpen(false)}
                 />
               </div>
+
+              <div className="form-field">
+                <AccountStateSelect
+                  label="Group State"
+                  value={newGroupState}
+                  onChange={(value) => setNewGroupState(value || '')}
+                  placeholder="Select Group State"
+                  required
+                  style={{ marginBottom: 0 }}
+                />
+              </div>
               
               <div className="form-field">
                 <label>Whatsapp Group Link <span className="required-star">*</span></label>
@@ -987,6 +1019,17 @@ export default function JoinWhatsappGroup() {
                     setEditCenterOpen(false);
                   }}
                   onClose={() => setEditGenderOpen(false)}
+                />
+              </div>
+
+              <div className="form-field">
+                <AccountStateSelect
+                  label="Group State"
+                  value={editGroupState}
+                  onChange={(value) => setEditGroupState(value || '')}
+                  placeholder="Select Group State"
+                  required
+                  style={{ marginBottom: 0 }}
                 />
               </div>
               

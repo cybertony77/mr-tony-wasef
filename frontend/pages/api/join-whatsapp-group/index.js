@@ -58,11 +58,14 @@ export default async function handler(req, res) {
       });
     } else if (req.method === 'POST') {
       // Create new WhatsApp group
-      const { title, course, courseType, center, gender, link } = req.body;
+      const { title, course, courseType, center, gender, link, group_state } = req.body;
 
       if (!title || !course || !gender || !link) {
         return res.status(400).json({ error: 'Title, Course, Gender, and Link are required' });
       }
+
+      const normalizedState =
+        group_state === 'Deactivated' ? 'Deactivated' : 'Activated';
 
       const newGroup = {
         title: title.trim(),
@@ -71,6 +74,7 @@ export default async function handler(req, res) {
         center: (center || '').trim(),
         gender: gender.trim(),
         link: link.trim(),
+        group_state: normalizedState,
         createdAt: new Date(),
         updatedAt: new Date()
       };
@@ -86,7 +90,7 @@ export default async function handler(req, res) {
       });
     } else if (req.method === 'PUT') {
       // Update WhatsApp group
-      const { id, title, course, courseType, center, gender, link } = req.body;
+      const { id, title, course, courseType, center, gender, link, group_state } = req.body;
 
       if (!id) {
         return res.status(400).json({ error: 'Group ID is required' });
@@ -103,6 +107,9 @@ export default async function handler(req, res) {
         query = { _id: id };
       }
 
+      const normalizedState =
+        group_state === 'Deactivated' ? 'Deactivated' : 'Activated';
+
       const updateData = {
         title: title.trim(),
         course: course.trim(),
@@ -110,6 +117,7 @@ export default async function handler(req, res) {
         center: (center || '').trim(),
         gender: gender.trim(),
         link: link.trim(),
+        group_state: normalizedState,
         updatedAt: new Date()
       };
 

@@ -225,16 +225,16 @@ function calculateBonusPoints(condition, student, type, currentLesson = null) {
           }
         }
         if (ohw.result && typeof ohw.result === 'string') {
-          const resultStr = String(ohw.result).trim();
-          const match = resultStr.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
-          if (match) {
-            const obtained = parseFloat(match[1]);
-            const total = parseFloat(match[2]);
-            const percentage = total > 0 ? Math.round((obtained / total) * 100) : 0;
-            lessonPercentageMap.set(ohw.lesson, percentage);
+        const resultStr = String(ohw.result).trim();
+        const match = resultStr.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
+        if (match) {
+          const obtained = parseFloat(match[1]);
+          const total = parseFloat(match[2]);
+          const percentage = total > 0 ? Math.round((obtained / total) * 100) : 0;
+                lessonPercentageMap.set(ohw.lesson, percentage);
+          }
           }
         }
-      }
           } catch (err) {
             console.error('[SCORING] Error processing online homework for bonus:', err);
       }
@@ -278,16 +278,16 @@ function calculateBonusPoints(condition, student, type, currentLesson = null) {
           }
         }
         if (oqz.result && typeof oqz.result === 'string') {
-          const resultStr = String(oqz.result).trim();
-          const match = resultStr.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
-          if (match) {
-            const obtained = parseFloat(match[1]);
-            const total = parseFloat(match[2]);
-            const percentage = total > 0 ? Math.round((obtained / total) * 100) : 0;
-            lessonPercentageMap.set(oqz.lesson, percentage);
+        const resultStr = String(oqz.result).trim();
+        const match = resultStr.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
+        if (match) {
+          const obtained = parseFloat(match[1]);
+          const total = parseFloat(match[2]);
+          const percentage = total > 0 ? Math.round((obtained / total) * 100) : 0;
+                lessonPercentageMap.set(oqz.lesson, percentage);
           }
-        }
-      }
+              }
+            }
           } catch (err) {
             console.error('[SCORING] Error processing online quiz for bonus:', err);
           }
@@ -656,7 +656,7 @@ function getStateEntry(student, stateKey) {
 
 async function findCompatibilityFallbackHistory(db, { studentId, type, lesson, source }) {
   const query = {
-    student_id: parseInt(studentId),
+                    student_id: parseInt(studentId), 
     type,
   };
 
@@ -668,7 +668,7 @@ async function findCompatibilityFallbackHistory(db, { studentId, type, lesson, s
     source.sourceKind !== 'online_mock_exam'
   ) {
     query.process_name = { $regex: source.sourceLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') };
-  } else {
+              } else {
     return null;
   }
 
@@ -722,7 +722,7 @@ export async function applyScoringEvent({
     if (lookupType === 'homework') {
       const hasPercentage = data?.percentage !== undefined && data?.percentage !== null;
       condition = conditions.find((c) => c.type === lookupType && c.withDegree === hasPercentage);
-    } else {
+        } else {
       condition = conditions.find((c) => c.type === lookupType);
     }
     if (!condition) {
@@ -789,7 +789,7 @@ export async function applyScoringEvent({
     } else if (type === 'attendance') {
       if (data?.reverseOnly) {
         currentResult = { status: 'reversed', previousStatus: data?.previousStatus ?? null };
-      } else {
+            } else {
         currentBaseContribution = await evaluateRule(zenRule, { status: data?.status });
         currentResult = { status: data?.status ?? null };
       }
@@ -804,14 +804,14 @@ export async function applyScoringEvent({
       } else if (!data?.reverseOnly) {
         currentBaseContribution = await evaluateRule(zenRule, { hwDone: data?.hwDone });
         currentResult = { hwDone: data?.hwDone ?? null };
-      } else {
+        } else {
         currentResult = { reversed: true, previousHwDone: data?.previousHwDone ?? null };
       }
     } else if (type === 'quiz' || type === 'mock_exam') {
       if (!data?.reverseOnly && data?.percentage !== undefined && data?.percentage !== null) {
         currentBaseContribution = await evaluateRule(zenRule, { percentage: data.percentage });
         currentResult = { percentage: data.percentage };
-      } else {
+          } else {
         currentResult = { reversed: true, previousPercentage: data?.previousPercentage ?? null };
       }
     }
@@ -918,7 +918,7 @@ export async function applyScoringEvent({
     };
     if (previousState) {
       filter[`scoring_state.${source.stateKey}.version`] = previousState.version;
-    } else {
+      } else {
       filter[`scoring_state.${source.stateKey}`] = { $exists: false };
     }
 

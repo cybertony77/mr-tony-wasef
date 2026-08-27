@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import Image from 'next/image';
 import { useSystemConfig } from '../../lib/api/system';
-import DesmosQuestionAssist from '../../components/student/DesmosQuestionAssist';
 
 export default function Dashboard() {
   const router = useRouter();
@@ -244,6 +243,16 @@ export default function Dashboard() {
           <Image src="/history.svg" alt="History" width={20} height={20} />
           History
         </button>
+        {isDesmosEnabled && (
+          <button
+            type="button"
+            className="dashboard-btn"
+            onClick={() => router.push('/dashboard/desmos_config')}
+          >
+            <Image src="/calculator.svg" alt="Desmos Calculator" width={20} height={20} />
+            Desmos Calculator
+          </button>
+        )}
         {isCertificatesEnabled && (
           <button
             className="dashboard-btn certificate-btn"
@@ -252,26 +261,6 @@ export default function Dashboard() {
             <Image src="/certificate.svg" alt="Certificates" width={20} height={20} />
             Certificates
           </button>
-        )}
-        {isDesmosEnabled && (
-          <DesmosQuestionAssist
-            standalone
-            instanceKey="dashboard-desmos"
-          >
-            {({ showDesmos, openCalculator, isOpen }) =>
-              showDesmos ? (
-                <button
-                  type="button"
-                  className="dashboard-btn"
-                  onClick={() => openCalculator?.()}
-                  disabled={isOpen || !openCalculator}
-                >
-                  <Image src="/calculator.svg" alt="Desmos Calculator" width={20} height={20} />
-                  Desmos Calculator
-                </button>
-              ) : null
-            }
-          </DesmosQuestionAssist>
         )}
         {isZoomJoinMeetingEnabled && (
           <button
