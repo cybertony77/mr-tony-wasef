@@ -17,6 +17,7 @@ export function isStudentLessonRecord(value) {
     'quizDegree' in value ||
     'homework_degree' in value ||
     'message_state' in value ||
+    'student_message_state' in value ||
     'lastAttendance' in value ||
     'paid' in value
   );
@@ -33,6 +34,7 @@ export function createDefaultStudentLesson(lessonName, overrides = {}) {
     quizDegree: null,
     comment: null,
     message_state: false,
+    student_message_state: false,
     homework_degree: null,
     paid: false,
     ...overrides,

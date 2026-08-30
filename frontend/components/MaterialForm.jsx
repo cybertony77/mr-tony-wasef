@@ -7,6 +7,7 @@ import CenterSelect from './CenterSelect';
 import AccountStateSelect from './AccountStateSelect';
 import ImportExistingOnlineItemModal from './ImportExistingOnlineItemModal';
 import AllowDownloadingRadio from './AllowDownloadingRadio';
+import CertificateStudentsSelect from './CertificateStudentsSelect';
 
 export default function MaterialForm({
   mode = 'add',
@@ -29,6 +30,8 @@ export default function MaterialForm({
     pdf_file_name: initialData?.pdf_file_name || '',
     pdf_url: initialData?.pdf_url || '',
     allow_downloading: initialData?.allow_downloading !== false && initialData?.allow_downloading !== 'false',
+    payment_state: initialData?.payment_state === 'paid' ? 'paid' : 'free',
+    students_allowed: initialData?.students_allowed || '',
   });
   const [errors, setErrors] = useState({});
   const [courseOpen, setCourseOpen] = useState(false);
@@ -53,7 +56,8 @@ export default function MaterialForm({
 
   const validate = () => {
     const next = {};
-    if (!formData.course.trim()) next.course = `❌ Material ${courseLabels.courseLower} is required`;
+    if (formData.payment_state === 'free' && !formData.course.trim()) next.course = `❌ Material ${courseLabels.courseLower} is required`;
+    if (formData.payment_state === 'paid' && !formData.students_allowed.trim()) next.students_allowed = '❌ Select at least one student for paid material';
     if (!formData.material_name.trim()) next.material_name = '❌ Material name is required';
     if (!formData.pdf_file_name.trim()) next.pdf_file_name = '❌ PDF file name is required';
     if (!formData.pdf_url.trim()) next.pdf_url = '❌ PDF file is required';
@@ -104,15 +108,17 @@ export default function MaterialForm({
         e.preventDefault();
         if (!validate()) return;
         onSubmit({
-          course: formData.course.trim(),
-          courseType: isNational ? null : (formData.course.trim() ? (formData.courseType.trim() || null) : null),
-          center: formData.center.trim() || null,
+          course: formData.payment_state === 'paid' ? null : formData.course.trim(),
+          courseType: formData.payment_state === 'paid' ? null : (isNational ? null : (formData.course.trim() ? (formData.courseType.trim() || null) : null)),
+          center: formData.payment_state === 'paid' ? null : (formData.center.trim() || null),
           material_name: formData.material_name.trim(),
           state: formData.state || 'Activated',
           comment: formData.comment.trim() || '',
           pdf_file_name: formData.pdf_file_name.trim(),
           pdf_url: formData.pdf_url.trim(),
           allow_downloading: formData.allow_downloading !== false,
+          payment_state: formData.payment_state,
+          students_allowed: formData.payment_state === 'paid' ? formData.students_allowed.trim() : '',
         });
       }}
     >
@@ -127,6 +133,52 @@ export default function MaterialForm({
       </div>
 
       <div style={{ marginBottom: 20 }}>
+        <label style={{ display: 'block', marginBottom: 8, fontWeight: 600 }}>Material Payment State <span style={{ color: 'red' }}>*</span></label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {['paid', 'free'].map((paymentState) => (
+            <label
+              key={paymentState}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                cursor: 'pointer',
+                padding: 10,
+                borderRadius: 8,
+                border: formData.payment_state === paymentState ? '2px solid #1FA8DC' : '2px solid #e9ecef',
+                backgroundColor: formData.payment_state === paymentState ? '#f0f8ff' : '#fff',
+                width: '100%',
+                boxSizing: 'border-box',
+              }}
+            >
+              <input
+                type="radio"
+                name="material_payment_state"
+                value={paymentState}
+                checked={formData.payment_state === paymentState}
+                onChange={(e) => setFormData((p) => ({
+                  ...p,
+                  payment_state: e.target.value,
+                  ...(e.target.value === 'free' ? { students_allowed: '' } : {}),
+                }))}
+                style={{ marginRight: 10, width: 18, height: 18, cursor: 'pointer', flexShrink: 0 }}
+              />
+              <span style={{ fontWeight: 500 }}>{paymentState === 'paid' ? 'Paid' : 'Free'}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+      {formData.payment_state === 'paid' && (
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ display: 'block', marginBottom: 8, fontWeight: 600 }}>Students Allowed <span style={{ color: 'red' }}>*</span></label>
+          <CertificateStudentsSelect
+            value={formData.students_allowed}
+            onChange={(value) => setFormData((p) => ({ ...p, students_allowed: value }))}
+            error={errors.students_allowed}
+          />
+          {errors.students_allowed && <div style={{ color: '#dc3545', fontSize: '.875rem', marginTop: 4 }}>{errors.students_allowed}</div>}
+        </div>
+      )}
+      {formData.payment_state === 'free' && <div style={{ marginBottom: 20 }}>
         <label style={{ display: 'block', marginBottom: 8, fontWeight: 600 }}>Material {courseLabels.course} <span style={{ color: 'red' }}>*</span></label>
         <CourseSelect
           selectedGrade={formData.course}
@@ -141,17 +193,17 @@ export default function MaterialForm({
           onClose={() => setCourseOpen(false)}
         />
         {errors.course && <div style={{ color: '#dc3545', fontSize: '.875rem', marginTop: 4 }}>{errors.course}</div>}
-      </div>
-      {courseLabels.showCourseType && (
+      </div>}
+      {formData.payment_state === 'free' && courseLabels.showCourseType && (
       <div style={{ marginBottom: 20 }}>
         <label style={{ display: 'block', marginBottom: 8, fontWeight: 600 }}>Material Course Type</label>
         <CourseTypeSelect selectedCourseType={formData.courseType} onCourseTypeChange={(v) => setFormData((p) => ({ ...p, courseType: v }))} isOpen={courseTypeOpen} onToggle={() => { setCourseTypeOpen(!courseTypeOpen); setCourseOpen(false); setCenterOpen(false); }} onClose={() => setCourseTypeOpen(false)} />
       </div>
       )}
-      <div style={{ marginBottom: 20 }}>
+      {formData.payment_state === 'free' && <div style={{ marginBottom: 20 }}>
         <label style={{ display: 'block', marginBottom: 8, fontWeight: 600 }}>Material Center</label>
         <CenterSelect selectedCenter={formData.center} onCenterChange={(v) => setFormData((p) => ({ ...p, center: v }))} required={false} isOpen={centerOpen} onToggle={() => { setCenterOpen(!centerOpen); setCourseOpen(false); setCourseTypeOpen(false); }} onClose={() => setCenterOpen(false)} />
-      </div>
+      </div>}
       <AccountStateSelect value={formData.state} onChange={(v) => setFormData((p) => ({ ...p, state: v || 'Activated' }))} label="Material State" placeholder="Select Material State" required={true} />
       <div style={{ marginBottom: 20 }}>
         <label style={{ display: 'block', marginBottom: 8, fontWeight: 600 }}>Material Name <span style={{ color: 'red' }}>*</span></label>
@@ -259,6 +311,8 @@ export default function MaterialForm({
             pdf_file_name: selected.pdf_file_name || '',
             pdf_url: selected.pdf_url || '',
             allow_downloading: selected.allow_downloading !== false && selected.allow_downloading !== 'false',
+            payment_state: selected.payment_state === 'paid' ? 'paid' : 'free',
+            students_allowed: selected.students_allowed || '',
           });
           setErrors({});
           setImportApplyLoading(false);

@@ -5,12 +5,14 @@ import { generatePublicStudentLink } from '../lib/generatePublicLink';
 import { useSystemConfig } from '../lib/api/system';
 import apiClient from '../lib/axios';
 
-const WhatsAppButton = ({ student, onMessageSent, onScoreUpdate, cooldownLeft = 0, showCooldown = false, onCooldownStart }) => {
+const WhatsAppButton = ({ student, recipient = 'parent', balanceCounterSpace = true, onMessageSent, onScoreUpdate, cooldownLeft = 0, showCooldown = false, onCooldownStart }) => {
   const { data: systemConfig } = useSystemConfig();
   const systemName = systemConfig?.name || 'Demo Attendance System';
   const isScoringEnabled = systemConfig?.scoring_system === true || systemConfig?.scoring_system === 'true';
   const isNational =
     systemConfig?.national_system === true || systemConfig?.national_system === 'true';
+  const isStudentRecipient = recipient === 'student';
+  const messageStateField = isStudentRecipient ? 'student_message_state' : 'message_state';
   const [message, setMessage] = useState('');
   const updateMessageStateMutation = useUpdateMessageState();
   const isCoolingDown = cooldownLeft > 0;
@@ -21,27 +23,32 @@ const WhatsAppButton = ({ student, onMessageSent, onScoreUpdate, cooldownLeft = 
 
     try {
       // Get phone number from DB (should already include country code, e.g., "201211172756")
-      let parentNumber = student.parents_phone ? student.parents_phone.replace(/[^0-9]/g, '') : null;
+      const rawRecipientPhone = isStudentRecipient
+        ? student.phone
+        : (student.parents_phone || student.parentsPhone);
+      let recipientNumber = rawRecipientPhone
+        ? String(rawRecipientPhone).replace(/[^0-9]/g, '')
+        : null;
       
       // Validate phone number exists
-      if (!parentNumber || parentNumber.length < 3) {
-        setMessage('Missing or invalid parent phone number');
+      if (!recipientNumber || recipientNumber.length < 3) {
+        setMessage(`Missing or invalid ${isStudentRecipient ? 'student' : 'parent'} phone number`);
         setTimeout(() => setMessage(''), 3000);
         // Update database to mark as failed
         const lessonName = student.attendanceLesson || student.currentLesson || (student.lessons && Object.keys(student.lessons).length > 0 ? Object.keys(student.lessons)[0] : 'N/A');
-        updateMessageStateMutation.mutate({ id: student.id, message_state: false, lesson: lessonName });
+        updateMessageStateMutation.mutate({ id: student.id, message_state: false, message_state_field: messageStateField, lesson: lessonName });
         return;
       }
       
       // Auto-convert only local Egyptian mobile numbers; keep other international numbers as-is.
       const startsWithEgyptLocalMobile =
-        parentNumber.startsWith('010') ||
-        parentNumber.startsWith('011') ||
-        parentNumber.startsWith('012') ||
-        parentNumber.startsWith('015');
+        recipientNumber.startsWith('010') ||
+        recipientNumber.startsWith('011') ||
+        recipientNumber.startsWith('012') ||
+        recipientNumber.startsWith('015');
 
       if (startsWithEgyptLocalMobile) {
-        parentNumber = `20${parentNumber.substring(1)}`;
+        recipientNumber = `20${recipientNumber.substring(1)}`;
       }
 
       // Validate student data
@@ -50,7 +57,7 @@ const WhatsAppButton = ({ student, onMessageSent, onScoreUpdate, cooldownLeft = 
         setTimeout(() => setMessage(''), 3000);
         // Update database to mark as failed
         const lessonName = student.attendanceLesson || student.currentLesson || (student.lessons && Object.keys(student.lessons).length > 0 ? Object.keys(student.lessons)[0] : 'N/A');
-        updateMessageStateMutation.mutate({ id: student.id, message_state: false, lesson: lessonName });
+        updateMessageStateMutation.mutate({ id: student.id, message_state: false, message_state_field: messageStateField, lesson: lessonName });
         return;
       }
 
@@ -123,12 +130,11 @@ const WhatsAppButton = ({ student, onMessageSent, onScoreUpdate, cooldownLeft = 
         console.log(`Assignment: ${assignmentText}, Quiz: ${quizDegreeText}`);
       }
 
-      // Create the message using the specified format
-      // Extract first name from full name
+      // Create the message using the specified format.
       const firstName = student.name ? student.name.split(' ')[0] : 'Student';
       let whatsappMessage = `Follow up Message:
 
-Dear, ${firstName}'s Parent
+${isStudentRecipient ? `Dear, ${firstName}` : `Dear, ${firstName}'s Parent`}
 We want to inform you that we are in:
 
   • Lesson: ${lessonName}
@@ -157,12 +163,21 @@ We want to inform you that we are in:
   • Comment: ${lessonComment}`;
       }
 
-      // Generate public link with HMAC
-      const publicLink = generatePublicStudentLink(student.id.toString());
-
       const isPaymentSystemEnabled = systemConfig?.payment_system === true || systemConfig?.payment_system === 'true';
 
-      whatsappMessage += `
+      if (isStudentRecipient) {
+        whatsappMessage += `
+
+Note :-
+  • Your ID: ${student.id}${isPaymentSystemEnabled ? `
+  • Number of Remaining Sessions: ${student.payment?.numberOfSessions ?? 0}${(student.payment?.numberOfSessions ?? 0) <= 2 ? `
+
+*Please renew to continue your sessions without interruption.*` : ''}` : ''}
+
+We wish you get high grades 😊❤`;
+      } else {
+        const publicLink = generatePublicStudentLink(student.id.toString());
+        whatsappMessage += `
 
 Please visit the following link to check ${firstName}'s grades and progress: ⬇️
 
@@ -177,12 +192,13 @@ Note :-
 We wish ${firstName} gets high grades 😊❤
 
 – ${systemName}`;
+      }
 
       // Create WhatsApp URL with the formatted message
-      const whatsappUrl = `https://wa.me/${parentNumber}?text=${encodeURIComponent(whatsappMessage)}`;
+      const whatsappUrl = `https://wa.me/${recipientNumber}?text=${encodeURIComponent(whatsappMessage)}`;
       
       // Log the final phone number for debugging
-      console.log('Attempting to send WhatsApp to:', parentNumber, 'Original:', student.parents_phone);
+      console.log('Attempting to send WhatsApp to:', recipientNumber, 'Original:', rawRecipientPhone);
       
       // Try to open WhatsApp in a new tab/window
       const whatsappWindow = window.open(whatsappUrl, '_blank');
@@ -192,7 +208,7 @@ We wish ${firstName} gets high grades 😊❤
         setMessage('Popup blocked - please allow popups and try again');
         setTimeout(() => setMessage(''), 3000);
         // Update database to mark as failed
-        updateMessageStateMutation.mutate({ id: student.id, message_state: false, lesson: lessonName });
+        updateMessageStateMutation.mutate({ id: student.id, message_state: false, message_state_field: messageStateField, lesson: lessonName });
         return;
       }
       
@@ -224,12 +240,12 @@ We wish ${firstName} gets high grades 😊❤
       // Run message_state update and scoring in parallel (don't block on mutation)
       // 1. Update message_state in database
       updateMessageStateMutation.mutate(
-        { id: student.id, message_state: true, lesson: lessonName },
+        { id: student.id, message_state: true, message_state_field: messageStateField, lesson: lessonName },
         {
           onSuccess: () => {
             console.log('Message state updated successfully in database for lesson:', lessonName);
             if (onMessageSent) {
-              onMessageSent(student.id, true);
+              onMessageSent(student.id, true, messageStateField);
             }
           },
           onError: (error) => {
@@ -243,7 +259,7 @@ We wish ${firstName} gets high grades 😊❤
 
       // 2. Apply scoring rules (async, fire-and-forget)
       // IMPORTANT: Check scoring_system_history first to prevent duplicate scoring on multiple clicks
-      if (isScoringEnabled) {
+      if (isScoringEnabled && !isStudentRecipient) {
         (async () => {
           try {
             let scoreUpdated = false;
@@ -343,7 +359,7 @@ We wish ${firstName} gets high grades 😊❤
       setTimeout(() => setMessage(''), 3000);
       // Update database to mark as failed
       const lessonName = student.attendanceLesson || student.currentLesson || (student.lessons && Object.keys(student.lessons).length > 0 ? Object.keys(student.lessons)[0] : 'N/A');
-      updateMessageStateMutation.mutate({ id: student.id, message_state: false, lesson: lessonName });
+      updateMessageStateMutation.mutate({ id: student.id, message_state: false, message_state_field: messageStateField, lesson: lessonName });
     }
   };
 
@@ -357,7 +373,7 @@ We wish ${firstName} gets high grades 😊❤
         verticalAlign: 'middle',
       }}
     >
-      <div aria-hidden style={{ minHeight: '18px', width: '100%' }} />
+      {balanceCounterSpace && <div aria-hidden style={{ minHeight: '18px', width: '100%' }} />}
       <button
         onClick={handleWhatsAppClick}
         disabled={isCoolingDown}

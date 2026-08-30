@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { authMiddleware } from '../../../lib/authMiddleware';
 import { duplicateCenterMongoFragment } from '../../../lib/onlineItemDuplicate';
+import { parseStudentsCsv, studentsCsvFromIds } from '../../../lib/certificatesUtils';
 
 function loadEnvConfig() {
   try {
@@ -31,6 +32,10 @@ const envConfig = loadEnvConfig();
 const MONGO_URI = envConfig.MONGO_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/topphysics';
 const DB_NAME = envConfig.DB_NAME || process.env.DB_NAME || 'mr-george-magdy';
 
+function normalizeStudentsAllowed(value) {
+  return studentsCsvFromIds(parseStudentsCsv(value));
+}
+
 export default async function handler(req, res) {
   let client;
   try {
@@ -49,15 +54,19 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'POST') {
-      const { course, courseType, center, material_name, comment, pdf_file_name, pdf_url, state, allow_downloading } = req.body;
-      if (!course || !String(course).trim()) return res.status(400).json({ error: '❌ Material course is required' });
+      const { course, courseType, center, material_name, comment, pdf_file_name, pdf_url, state, allow_downloading, payment_state, students_allowed } = req.body;
+      const normalizedPaymentState = payment_state === 'paid' ? 'paid' : payment_state === 'free' || payment_state === undefined ? 'free' : null;
+      if (!normalizedPaymentState) return res.status(400).json({ error: '❌ Material payment state must be free or paid' });
+      const normalizedStudentsAllowed = normalizeStudentsAllowed(students_allowed);
+      if (normalizedPaymentState === 'free' && (!course || !String(course).trim())) return res.status(400).json({ error: '❌ Material course is required for free material' });
+      if (normalizedPaymentState === 'paid' && !normalizedStudentsAllowed) return res.status(400).json({ error: '❌ Select at least one student for paid material' });
       if (!material_name || !String(material_name).trim()) return res.status(400).json({ error: '❌ Material name is required' });
       if (!pdf_file_name || !String(pdf_file_name).trim()) return res.status(400).json({ error: '❌ PDF file name is required' });
       if (!pdf_url || !String(pdf_url).trim()) return res.status(400).json({ error: '❌ PDF file is required' });
 
-      const courseTrimmed = String(course).trim();
-      const courseTypeTrimmed = courseType ? String(courseType).trim() : '';
-      const centerTrimmed = center && String(center).trim() !== '' ? String(center).trim() : null;
+      const courseTrimmed = normalizedPaymentState === 'paid' ? null : String(course).trim();
+      const courseTypeTrimmed = normalizedPaymentState === 'paid' ? '' : (courseType ? String(courseType).trim() : '');
+      const centerTrimmed = normalizedPaymentState === 'paid' ? null : (center && String(center).trim() !== '' ? String(center).trim() : null);
       const materialNameTrimmed = String(material_name).trim();
 
       const existing = await collection.findOne({
@@ -80,6 +89,8 @@ export default async function handler(req, res) {
         pdf_url: String(pdf_url).trim(),
         allow_downloading: allow_downloading === false || allow_downloading === 'false' ? false : true,
         state: state === 'Deactivated' ? 'Deactivated' : 'Activated',
+        payment_state: normalizedPaymentState,
+        students_allowed: normalizedPaymentState === 'paid' ? normalizedStudentsAllowed : '',
         date: new Date().toISOString(),
       };
       const result = await collection.insertOne(item);
@@ -88,16 +99,20 @@ export default async function handler(req, res) {
 
     if (req.method === 'PUT') {
       const { id } = req.query;
-      const { course, courseType, center, material_name, comment, pdf_file_name, pdf_url, state, allow_downloading } = req.body;
+      const { course, courseType, center, material_name, comment, pdf_file_name, pdf_url, state, allow_downloading, payment_state, students_allowed } = req.body;
       if (!id) return res.status(400).json({ error: '❌ Material ID is required' });
-      if (!course || !String(course).trim()) return res.status(400).json({ error: '❌ Material course is required' });
+      const normalizedPaymentState = payment_state === 'paid' ? 'paid' : payment_state === 'free' || payment_state === undefined ? 'free' : null;
+      if (!normalizedPaymentState) return res.status(400).json({ error: '❌ Material payment state must be free or paid' });
+      const normalizedStudentsAllowed = normalizeStudentsAllowed(students_allowed);
+      if (normalizedPaymentState === 'free' && (!course || !String(course).trim())) return res.status(400).json({ error: '❌ Material course is required for free material' });
+      if (normalizedPaymentState === 'paid' && !normalizedStudentsAllowed) return res.status(400).json({ error: '❌ Select at least one student for paid material' });
       if (!material_name || !String(material_name).trim()) return res.status(400).json({ error: '❌ Material name is required' });
       if (!pdf_file_name || !String(pdf_file_name).trim()) return res.status(400).json({ error: '❌ PDF file name is required' });
       if (!pdf_url || !String(pdf_url).trim()) return res.status(400).json({ error: '❌ PDF file is required' });
 
-      const courseTrimmed = String(course).trim();
-      const courseTypeTrimmed = courseType ? String(courseType).trim() : '';
-      const centerTrimmed = center && String(center).trim() !== '' ? String(center).trim() : null;
+      const courseTrimmed = normalizedPaymentState === 'paid' ? null : String(course).trim();
+      const courseTypeTrimmed = normalizedPaymentState === 'paid' ? '' : (courseType ? String(courseType).trim() : '');
+      const centerTrimmed = normalizedPaymentState === 'paid' ? null : (center && String(center).trim() !== '' ? String(center).trim() : null);
       const materialNameTrimmed = String(material_name).trim();
 
       const existing = await collection.findOne({
@@ -124,6 +139,8 @@ export default async function handler(req, res) {
             pdf_url: String(pdf_url).trim(),
             allow_downloading: allow_downloading === false || allow_downloading === 'false' ? false : true,
             state: state === 'Deactivated' ? 'Deactivated' : 'Activated',
+            payment_state: normalizedPaymentState,
+            students_allowed: normalizedPaymentState === 'paid' ? normalizedStudentsAllowed : '',
           },
         }
       );

@@ -7,17 +7,27 @@ import {
   YAxis,
   Tooltip,
   CartesianGrid,
-  Cell
+  Legend,
+  Rectangle,
 } from "recharts";
 
-// Color function for bars - alternating colors
-function getBarColor(index) {
-  const colors = [
-    'rgb(54, 162, 235)',  // Blue
-    'rgb(255, 99, 132)',   // Pink/Red
-    '#3dd228'              // Green
-  ];
-  return colors[index % colors.length];
+function formatMockExamLabel(label) {
+  const normalized = String(label || '').replace(/_/g, ' ').trim();
+  const match = normalized.match(/^(?:mock\s+)?exam\s+(\d+)$/i);
+  return match ? `Mock Exam ${match[1]}` : (label || 'Unknown');
+}
+
+function CenteredOverallBar(props) {
+  const {
+    x,
+    payload,
+    width,
+  } = props;
+  const hasSubjectScore =
+    payload?.mathPercentage !== null && payload?.mathPercentage !== undefined ||
+    payload?.englishPercentage !== null && payload?.englishPercentage !== undefined;
+  const centeredX = hasSubjectScore ? x : x - width - 10;
+  return <Rectangle {...props} x={centeredX} />;
 }
 
 export default function MockExamPerformanceChart({ chartData, height = 500 }) {
@@ -25,13 +35,23 @@ export default function MockExamPerformanceChart({ chartData, height = 500 }) {
     if (!chartData || !Array.isArray(chartData) || chartData.length === 0) {
       return [];
     }
-    return chartData.map(item => ({
-      lesson: item.lesson_name || item.lesson || 'Unknown',
-      percentage: item.percentage || 0,
-      result: item.result || '0 / 0' // Include result from API
-    }));
+    return chartData.map(item => {
+      const hasMath = item.mathPercentage != null || item.math_percentage != null;
+      const hasEnglish = item.englishPercentage != null || item.english_percentage != null;
+      return {
+        lesson: formatMockExamLabel(item.lesson_name || item.lesson || 'Unknown'),
+        percentage: hasMath || hasEnglish ? null : (item.percentage || 0),
+        mathPercentage: item.mathPercentage ?? item.math_percentage ?? null,
+        englishPercentage: item.englishPercentage ?? item.english_percentage ?? null,
+        mathDegree: item.mathDegree ?? item.math_degree ?? null,
+        mathOutOf: item.mathOutOf ?? item.math_out_of ?? null,
+        englishDegree: item.englishDegree ?? item.english_degree ?? null,
+        englishOutOf: item.englishOutOf ?? item.english_out_of ?? null,
+        result: item.result || '0 / 0',
+      };
+    });
   }, [chartData]);
-  const minChartWidth = Math.max(data.length * 70, 320);
+  const minChartWidth = Math.max(data.length * 95, 320);
 
   if (!data.length) {
     return (
@@ -94,10 +114,19 @@ export default function MockExamPerformanceChart({ chartData, height = 500 }) {
               formatter={(value, name, props) => {
                 const lesson = props.payload.lesson;
                 const percentage = value.toFixed(1);
-                const result = props.payload.result || '0 / 0';
+                const entry = props.payload;
+                const isMath = name === 'mathPercentage' || name === 'Math' || name === 'Math Exam' || name === 'Math Mock Exam';
+                const isEnglish = name === 'englishPercentage' || name === 'English' || name === 'English Exam' || name === 'English Mock Exam';
+                const section = isMath ? 'Math Mock Exam' : isEnglish ? 'English Mock Exam' : 'Overall Exam';
+                const degree = isMath ? entry.mathDegree : isEnglish ? entry.englishDegree : null;
+                const outOf = isMath ? entry.mathOutOf : isEnglish ? entry.englishOutOf : null;
+                const result = degree != null && outOf != null
+                  ? `${degree} / ${outOf}`
+                  : (entry.result || '0 / 0');
                 return [
                   <div key="tooltip" style={{ color: '#000000' }}>
                     <div><strong style={{ color: '#000000' }}>Lesson:</strong> {lesson}</div>
+                    <div><strong style={{ color: '#000000' }}>Section:</strong> {section}</div>
                     <div><strong style={{ color: '#000000' }}>Percentage:</strong> {percentage}%</div>
                     <div><strong style={{ color: '#000000' }}>Result:</strong> {result}</div>
                   </div>
@@ -105,15 +134,29 @@ export default function MockExamPerformanceChart({ chartData, height = 500 }) {
               }}
               labelStyle={{ display: 'none' }}
             />
-            <Bar 
-              dataKey="percentage" 
-              radius={[6, 6, 0, 0]} 
-              maxBarSize={50}
-            >
-              {data.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={getBarColor(index)} />
-              ))}
-            </Bar>
+            <Legend />
+            <Bar
+              dataKey="mathPercentage"
+              name="Math Mock Exam"
+              fill="rgb(54, 162, 235)"
+              radius={[6, 6, 0, 0]}
+              maxBarSize={42}
+            />
+            <Bar
+              dataKey="englishPercentage"
+              name="English Mock Exam"
+              fill="rgb(255, 99, 132)"
+              radius={[6, 6, 0, 0]}
+              maxBarSize={42}
+            />
+            <Bar
+              dataKey="percentage"
+              name="Overall Exam"
+              fill="#3dd228"
+              radius={[6, 6, 0, 0]}
+              maxBarSize={42}
+              shape={<CenteredOverallBar />}
+            />
           </BarChart>
         </ResponsiveContainer>
         </div>

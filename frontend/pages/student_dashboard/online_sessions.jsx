@@ -406,19 +406,6 @@ export default function OnlineSessions() {
         if (!attended) return false;
       }
 
-      // Free + number_of_days also requires center attendance (window from lastAttendance)
-      if (
-        session.payment_state === 'free' &&
-        session.viewing_limit_type === 'number_of_days' &&
-        !freeExpired
-      ) {
-        let attended = attendedInCenter(lessonData);
-        if (!attended && lessonData == null && session._attendedInCenter === true) {
-          attended = true;
-        }
-        if (!attended) return false;
-      }
-
       // After free viewing expires → paid path: VVC unlock
       if (isVvcUnlockValid(unlockedInfo)) {
         return true;
@@ -793,7 +780,7 @@ export default function OnlineSessions() {
         }
       }
 
-      // Free / free-if-attended: continue free access (days from lastAttendance; views from first open)
+      // Free / free-if-attended: continue free access (days/views start on first open)
       if (
         FREE_ONLINE_SESSION_PAYMENT_STATES.includes(session.payment_state) &&
         profile?.id &&

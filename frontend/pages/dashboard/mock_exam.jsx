@@ -9,6 +9,20 @@ import { TextInput, Button, Paper, Group, Text, Alert } from '@mantine/core';
 import { IconSearch, IconCheck, IconAlertCircle } from '@tabler/icons-react';
 import Image from 'next/image';
 
+const hasValue = (value) => value !== null && value !== undefined && value !== '';
+const hasMockExamData = (exam) => Boolean(
+  exam && (
+    hasValue(exam.mathDegree) ||
+    hasValue(exam.englishDegree) ||
+    hasValue(exam.examDegree) ||
+    hasValue(exam.percentage)
+  )
+);
+const getMockExamIndex = (label) => {
+  const match = String(label || '').match(/(?:Mock\s+)?Exam\s+(\d+)/i);
+  return match ? parseInt(match[1], 10) - 1 : -1;
+};
+
 export default function MockExam() {
   const containerRef = useRef(null);
   const router = useRouter();
@@ -23,8 +37,10 @@ export default function MockExam() {
 
   // Mock exam form states
   const [selectedExam, setSelectedExam] = useState("");
-  const [examDegree, setExamDegree] = useState("");
-  const [examOutOf, setExamOutOf] = useState("");
+  const [mathDegree, setMathDegree] = useState("");
+  const [mathOutOf, setMathOutOf] = useState("");
+  const [englishDegree, setEnglishDegree] = useState("");
+  const [englishOutOf, setEnglishOutOf] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
   const [isExamDropdownOpen, setIsExamDropdownOpen] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
@@ -170,18 +186,24 @@ export default function MockExam() {
       
       // Pre-populate form with existing mock exam data
       if (studentData.mockExams && selectedExam) {
-        const examIndex = parseInt(selectedExam.replace('Exam ', '')) - 1;
+        const examIndex = getMockExamIndex(selectedExam);
         const examData = studentData.mockExams[examIndex];
         if (examData) {
-          setExamDegree(examData.examDegree?.toString() || "");
-          setExamOutOf(examData.outOf?.toString() || "");
+          setMathDegree((examData.mathDegree ?? examData.examDegree ?? "").toString());
+          setMathOutOf((examData.mathOutOf ?? examData.outOf ?? "").toString());
+          setEnglishDegree(examData.englishDegree?.toString() || "");
+          setEnglishOutOf(examData.englishOutOf?.toString() || "");
         } else {
-          setExamDegree("");
-          setExamOutOf("");
+          setMathDegree("");
+          setMathOutOf("");
+          setEnglishDegree("");
+          setEnglishOutOf("");
         }
       } else {
-        setExamDegree("");
-        setExamOutOf("");
+        setMathDegree("");
+        setMathOutOf("");
+        setEnglishDegree("");
+        setEnglishOutOf("");
       }
     }
   }, [studentData, selectedExam]);
@@ -200,40 +222,71 @@ export default function MockExam() {
       return;
     }
 
-    if (!examDegree.trim() || !examOutOf.trim()) {
-      setError("Exam degree and out of are required.");
+    const hasMathInput = mathDegree.trim() !== "" || mathOutOf.trim() !== "";
+    const hasEnglishInput = englishDegree.trim() !== "" || englishOutOf.trim() !== "";
+
+    if (!hasMathInput && !hasEnglishInput) {
+      setError("Enter the Math or English degree and out of values.");
       return;
     }
 
-    const degree = parseFloat(examDegree);
-    const outOf = parseFloat(examOutOf);
+    const validateSection = (sectionName, degreeValue, outOfValue, isEntered) => {
+      if (!isEntered) return null;
+      if (!degreeValue.trim() || !outOfValue.trim()) {
+        return `${sectionName} degree and out of are both required.`;
+      }
+      const degree = parseFloat(degreeValue);
+      const outOf = parseFloat(outOfValue);
+      if (isNaN(degree) || degree < 0) {
+        return `${sectionName} degree must be a valid non-negative number.`;
+      }
+      if (isNaN(outOf) || outOf <= 0) {
+        return `${sectionName} out of must be greater than zero.`;
+      }
+      if (degree > outOf) {
+        return `${sectionName} degree cannot be greater than out of.`;
+      }
+      return null;
+    };
 
-    if (isNaN(degree) || degree < 0) {
-      setError("Exam degree must be a positive number.");
+    const mathError = validateSection('Math', mathDegree, mathOutOf, hasMathInput);
+    const englishError = validateSection('English', englishDegree, englishOutOf, hasEnglishInput);
+    if (mathError || englishError) {
+      setError(mathError || englishError);
       return;
     }
 
-    if (isNaN(outOf) || outOf <= 0) {
-      setError("Out of must be a positive number.");
-      return;
-    }
-
-    if (degree > outOf) {
-      setError("Exam degree cannot be greater than out of.");
-      return;
-    }
+    const mathDegreeNumber = hasMathInput ? parseFloat(mathDegree) : null;
+    const mathOutOfNumber = hasMathInput ? parseFloat(mathOutOf) : null;
+    const englishDegreeNumber = hasEnglishInput ? parseFloat(englishDegree) : null;
+    const englishOutOfNumber = hasEnglishInput ? parseFloat(englishOutOf) : null;
+    const mathPercentage = hasMathInput
+      ? Math.round((mathDegreeNumber / mathOutOfNumber) * 100)
+      : null;
+    const englishPercentage = hasEnglishInput
+      ? Math.round((englishDegreeNumber / englishOutOfNumber) * 100)
+      : null;
+    const totalDegree =
+      (mathDegreeNumber ?? 0) + (englishDegreeNumber ?? 0);
+    const totalOutOf =
+      (mathOutOfNumber ?? 0) + (englishOutOfNumber ?? 0);
+    const percentage = Math.round((totalDegree / totalOutOf) * 100);
 
     setError("");
 
-    const examIndex = parseInt(selectedExam.replace('Exam ', '')) - 1;
-    const percentage = Math.round((degree / outOf) * 100);
+    const examIndex = getMockExamIndex(selectedExam);
 
     const mockExamData = {
       studentId: student.id,
       examIndex: examIndex,
-      examDegree: degree,
-      outOf: outOf,
-      percentage: percentage
+      mathDegree: mathDegreeNumber,
+      mathOutOf: mathOutOfNumber,
+      mathPercentage,
+      englishDegree: englishDegreeNumber,
+      englishOutOf: englishOutOfNumber,
+      englishPercentage,
+      // Keep an overall result for existing scoring and legacy consumers.
+      percentage,
     };
 
     console.log('📤 Sending mock exam data:', mockExamData);
@@ -248,41 +301,89 @@ export default function MockExam() {
         // Calculate scoring if enabled
         if (isScoringEnabled) {
           try {
-            // Get previous percentage for this exam (if it existed before)
-            let previousPercentage = null;
-            if (student.mockExams && Array.isArray(student.mockExams)) {
-              const prevExam = student.mockExams[examIndex];
-              if (prevExam && prevExam.percentage !== null && prevExam.percentage !== undefined) {
-                previousPercentage = parseInt(String(prevExam.percentage).replace('%', ''), 10);
-                if (isNaN(previousPercentage)) previousPercentage = null;
+            const previousExam = student.mockExams && Array.isArray(student.mockExams)
+              ? student.mockExams[examIndex]
+              : null;
+            const previousMathPercentage = previousExam?.mathPercentage ?? null;
+            const previousEnglishPercentage = previousExam?.englishPercentage ?? null;
+            const previousOverallPercentage = previousExam?.percentage ?? null;
+            const hadSubjectScores =
+              previousMathPercentage !== null || previousEnglishPercentage !== null;
+            const scoringSections = [
+              {
+                key: 'math',
+                label: 'Math Mock Exam',
+                percentage: mockExamData.mathPercentage,
+                previousPercentage: previousMathPercentage,
+              },
+              {
+                key: 'english',
+                label: 'English Mock Exam',
+                percentage: mockExamData.englishPercentage,
+                previousPercentage: previousEnglishPercentage,
+              },
+            ];
+            const scoreMessages = [];
+
+            // Reverse the old single-score event when upgrading a legacy result
+            // to the new subject-specific scoring events.
+            if (!hadSubjectScores && previousOverallPercentage !== null) {
+              await apiClient.post('/api/scoring/calculate', {
+                studentId: student.id,
+                type: 'mock_exam',
+                lesson: `mock_exam_${examIndex + 1}`,
+                source: {
+                  kind: 'classroom_mock_exam',
+                  id: String(examIndex + 1),
+                  label: `Exam ${examIndex + 1}`,
+                },
+                data: {
+                  reverseOnly: true,
+                  previousPercentage: previousOverallPercentage,
+                },
+              });
+            }
+
+            for (const section of scoringSections) {
+              if (section.percentage === null && section.previousPercentage === null) {
+                continue;
+              }
+
+              const lessonName = `mock_exam_${examIndex + 1}_${section.key}`;
+              const scoringResponse = await apiClient.post('/api/scoring/calculate', {
+                studentId: student.id,
+                type: 'mock_exam',
+                lesson: lessonName,
+                source: {
+                  kind: 'classroom_mock_exam',
+                  id: `${examIndex + 1}_${section.key}`,
+                  label: `${section.label} ${examIndex + 1}`,
+                },
+                data: section.percentage === null
+                  ? {
+                      reverseOnly: true,
+                      previousPercentage: section.previousPercentage,
+                    }
+                  : {
+                      percentage: section.percentage,
+                      previousPercentage: section.previousPercentage,
+                    },
+              });
+
+              if (scoringResponse.data) {
+                const pts = scoringResponse.data.basePoints !== undefined
+                  ? scoringResponse.data.basePoints
+                  : scoringResponse.data.pointsAdded;
+                const bonus = scoringResponse.data.bonusPoints || 0;
+                const newScore = scoringResponse.data.newScore;
+                let sectionMessage = `${section.label}: ${pts >= 0 ? '+' : ''}${pts} points`;
+                if (bonus > 0) sectionMessage += ` (+${bonus} bonus)`;
+                if (newScore !== undefined) sectionMessage += ` | Total: ${newScore}`;
+                scoreMessages.push(sectionMessage);
               }
             }
 
-            const lessonName = `mock_exam_${examIndex + 1}`;
-            const scoringResponse = await apiClient.post('/api/scoring/calculate', {
-              studentId: student.id,
-              type: 'mock_exam',
-              lesson: lessonName,
-              source: {
-                kind: 'classroom_mock_exam',
-                id: String(examIndex + 1),
-                label: lessonName,
-              },
-              data: { percentage, previousPercentage }
-            });
-
-            if (scoringResponse.data) {
-              const pts = scoringResponse.data.basePoints !== undefined 
-                ? scoringResponse.data.basePoints 
-                : scoringResponse.data.pointsAdded;
-              const bonus = scoringResponse.data.bonusPoints || 0;
-              const newScore = scoringResponse.data.newScore;
-
-              let scoreMsg = `Score: ${pts >= 0 ? '+' : ''}${pts} points`;
-              if (bonus > 0) scoreMsg += ` (+${bonus} bonus)`;
-              if (newScore !== undefined) scoreMsg += ` | Total: ${newScore}`;
-              setScoringMessage(scoreMsg);
-            }
+            setScoringMessage(scoreMessages.join(' • ') || 'No score changes');
           } catch (err) {
             console.error('Error calculating mock exam score:', err);
             setScoringMessage("Score calculation failed");
@@ -348,15 +449,23 @@ export default function MockExam() {
     setIsClearing(true);
 
     // Clear form fields
-    setExamDegree("");
-    setExamOutOf("");
+    setMathDegree("");
+    setMathOutOf("");
+    setEnglishDegree("");
+    setEnglishOutOf("");
 
     try {
       // Clear mock exam data in database
-      const examIndex = parseInt(selectedExam.replace('Exam ', '')) - 1;
+      const examIndex = getMockExamIndex(selectedExam);
       const clearMockExamData = {
         studentId: student.id,
         examIndex: examIndex,
+        mathDegree: null,
+        mathOutOf: null,
+        mathPercentage: null,
+        englishDegree: null,
+        englishOutOf: null,
+        englishPercentage: null,
         examDegree: null,
         outOf: null,
         percentage: null
@@ -405,7 +514,7 @@ export default function MockExam() {
   
 
   // Exam options for dropdown
-  const examOptions = Array.from({ length: 50 }, (_, i) => `Exam ${i + 1}`);
+  const examOptions = Array.from({ length: 50 }, (_, i) => `Mock Exam ${i + 1}`);
 
   // Handle exam selection
   const handleExamSelect = (exam) => {
@@ -479,6 +588,12 @@ export default function MockExam() {
           .scoring-message { background: linear-gradient(135deg, #f59e0b 0%, #f97316 100%); color: white; border-radius: 10px; padding: 14px 16px; margin-top: 12px; text-align: center; font-weight: 600; font-size: 0.95rem; box-shadow: 0 4px 16px rgba(245, 158, 11, 0.3); display: flex; align-items: center; justify-content: center; gap: 8px; }
           .input-row { display: flex; gap: 12px; }
           .input-half { flex: 1; }
+          .section-title {
+            color: #1FA8DC;
+            font-size: 1.05rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+          }
           
           @keyframes spin {
             0% { transform: rotate(0deg); }
@@ -499,7 +614,8 @@ export default function MockExam() {
             .fetch-input {
               width: 100%;
             }
-            .input-row { flex-direction: column; }
+            .input-row { flex-direction: column; gap: 8px; }
+            .input-half { width: 100%; }
             .student-details {
               grid-template-columns: 1fr;
             }
@@ -613,18 +729,25 @@ export default function MockExam() {
               <div style={{ fontSize: '1.2rem', fontWeight: '600', color: '#495057', marginBottom: '16px' }}>
                 Mock Exam Results
               </div>
-              {student.mockExams && Array.isArray(student.mockExams) && student.mockExams.some(exam => exam && (exam.examDegree !== null || exam.percentage !== null)) ? (
+              {student.mockExams && Array.isArray(student.mockExams) && student.mockExams.some(hasMockExamData) ? (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
                   {student.mockExams.map((exam, index) => {
-                    if (exam && (exam.examDegree !== null || exam.percentage !== null)) {
+                    if (hasMockExamData(exam)) {
                       return (
                         <div key={index} className="detail-item" style={{ padding: '12px' }}>
-                          <div className="detail-label">Exam {index + 1}</div>
+                          <div className="detail-label">Mock Exam {index + 1}</div>
                           <div className="detail-value">
-                            {exam.examDegree !== null && exam.outOf !== null && (
+                            {hasValue(exam.mathDegree) && hasValue(exam.mathOutOf) && (
+                              <div>Math Mock Exam: {exam.mathDegree} / {exam.mathOutOf} ({exam.mathPercentage}%)</div>
+                            )}
+                            {hasValue(exam.englishDegree) && hasValue(exam.englishOutOf) && (
+                              <div>English Mock Exam: {exam.englishDegree} / {exam.englishOutOf} ({exam.englishPercentage}%)</div>
+                            )}
+                            {!hasValue(exam.mathDegree) && !hasValue(exam.englishDegree) &&
+                              hasValue(exam.examDegree) && hasValue(exam.outOf) && (
                               <div>Degree: {exam.examDegree} / {exam.outOf}</div>
                             )}
-                            {exam.percentage !== null && (
+                            {!hasValue(exam.mathPercentage) && !hasValue(exam.englishPercentage) && hasValue(exam.percentage) && (
                               <div style={{ color: '#28a745', fontWeight: 'bold', marginTop: '1px', marginBottom: '3px' }}>
                                 Percentage: {exam.percentage}%
                               </div>
@@ -740,29 +863,58 @@ export default function MockExam() {
               {selectedExam && (
                 <>
                   <div className="form-group">
+                    <div className="section-title">Math Mock Exam</div>
                     <div className="input-row">
-                      <div className="input-half">
-                        <label className="form-label">Degree</label>
+                      <div className="input-half section-input">
+                        <label className="form-label">Math Degree</label>
                         <input
                           type="number"
                           className="form-input"
-                          placeholder="Enter degree"
-                          value={examDegree}
-                          onChange={(e) => setExamDegree(e.target.value)}
-                          required
+                          placeholder="Enter Math degree"
+                          value={mathDegree}
+                          onChange={(e) => setMathDegree(e.target.value)}
                           min="0"
                           step="0.1"
                         />
                       </div>
-                      <div className="input-half">
-                        <label className="form-label">Out Of</label>
+                      <div className="input-half section-input">
+                        <label className="form-label">Math Out Of</label>
                         <input
                           type="number"
                           className="form-input"
-                          placeholder="Enter out of"
-                          value={examOutOf}
-                          onChange={(e) => setExamOutOf(e.target.value)}
-                          required
+                          placeholder="Enter Math total"
+                          value={mathOutOf}
+                          onChange={(e) => setMathOutOf(e.target.value)}
+                          min="0"
+                          step="0.1"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <div className="section-title">English Mock Exam</div>
+                    <div className="input-row">
+                      <div className="input-half section-input">
+                        <label className="form-label">English Degree</label>
+                        <input
+                          type="number"
+                          className="form-input"
+                          placeholder="Enter English degree"
+                          value={englishDegree}
+                          onChange={(e) => setEnglishDegree(e.target.value)}
+                          min="0"
+                          step="0.1"
+                        />
+                      </div>
+                      <div className="input-half section-input">
+                        <label className="form-label">English Out Of</label>
+                        <input
+                          type="number"
+                          className="form-input"
+                          placeholder="Enter English total"
+                          value={englishOutOf}
+                          onChange={(e) => setEnglishOutOf(e.target.value)}
                           min="0"
                           step="0.1"
                         />
@@ -773,7 +925,11 @@ export default function MockExam() {
                   <button 
                     type="submit" 
                     className="save-btn"
-                    disabled={saveMockExamMutation.isPending || isClearing || !examDegree.trim() || !examOutOf.trim()}
+                    disabled={
+                      saveMockExamMutation.isPending ||
+                      isClearing ||
+                      (!mathDegree.trim() && !mathOutOf.trim() && !englishDegree.trim() && !englishOutOf.trim())
+                    }
                   >
                     {saveMockExamMutation.isPending ? (
                       <>

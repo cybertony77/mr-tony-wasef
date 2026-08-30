@@ -301,7 +301,7 @@ export default async function handler(req, res) {
             const hasWeeks = Array.isArray(student.weeks) && student.weeks.length > 0;
             const currentWeek = hasWeeks ?
               (student.weeks.find(w => w && w.attended) || student.weeks.find(w => w) || student.weeks[0]) :
-              { week: 1, attended: false, lastAttendance: null, lastAttendanceCenter: null, hwDone: false, quizDegree: null, message_state: false };
+              { week: 1, attended: false, lastAttendance: null, lastAttendanceCenter: null, hwDone: false, quizDegree: null, message_state: false, student_message_state: false };
             
             // Robust null checks for currentWeek
             const safeCurrentWeek = currentWeek || { 
@@ -311,7 +311,8 @@ export default async function handler(req, res) {
               lastAttendanceCenter: null, 
               hwDone: false, 
               quizDegree: null, 
-              message_state: false 
+              message_state: false,
+              student_message_state: false
             };
             
             // Get email from users collection, or null if not found
@@ -338,6 +339,7 @@ export default async function handler(req, res) {
               school: student.school || null,
               age: student.age || null,
               message_state: safeCurrentWeek.message_state || false,
+              student_message_state: safeCurrentWeek.student_message_state || false,
               account_state: student.account_state || "Activated",
               score: student.score !== null && student.score !== undefined ? student.score : 0,
               email: studentEmail,
@@ -432,7 +434,7 @@ export default async function handler(req, res) {
             const hasWeeks = Array.isArray(student.weeks) && student.weeks.length > 0;
             const currentWeek = hasWeeks ?
               (student.weeks.find(w => w && w.attended) || student.weeks.find(w => w) || student.weeks[0]) :
-              { week: 1, attended: false, lastAttendance: null, lastAttendanceCenter: null, hwDone: false, quizDegree: null, message_state: false };
+              { week: 1, attended: false, lastAttendance: null, lastAttendanceCenter: null, hwDone: false, quizDegree: null, message_state: false, student_message_state: false };
             
             // Robust null checks for currentWeek
             const safeCurrentWeek = currentWeek || { 
@@ -442,7 +444,8 @@ export default async function handler(req, res) {
               lastAttendanceCenter: null, 
               hwDone: false, 
               quizDegree: null, 
-              message_state: false 
+              message_state: false,
+              student_message_state: false
             };
             
             // Get email from users collection, or null if not found
@@ -469,6 +472,7 @@ export default async function handler(req, res) {
               school: student.school || null,
               age: student.age || null,
               message_state: safeCurrentWeek.message_state || false,
+              student_message_state: safeCurrentWeek.student_message_state || false,
               account_state: student.account_state || "Activated",
               score: student.score !== null && student.score !== undefined ? student.score : 0,
               email: studentEmail,
@@ -498,13 +502,14 @@ export default async function handler(req, res) {
         }
         
         const missingCore =
-          !name || !course || !phone || !parents_phone || !main_center || age === undefined || !gender || !school;
+          !name || !course || !phone || !parents_phone || !main_center || age === undefined || !gender ||
+          (NATIONAL_SYSTEM && !school);
         const missingGrade = !NATIONAL_SYSTEM && !grade;
         if (missingCore || missingGrade) {
           return res.status(400).json({
             error: NATIONAL_SYSTEM
               ? 'All fields are required (name, course/grade, phone, parents_phone, main_center, age, gender, school)'
-              : 'All fields are required (name, grade, course, phone, parents_phone, main_center, age, gender, school)',
+              : 'All fields are required (name, grade, course, phone, parents_phone, main_center, age, gender)',
           });
         }
         
@@ -519,7 +524,8 @@ export default async function handler(req, res) {
         // If WITH_PHISICAL_CARD is false, auto-generate ID (last student ID + 1)
         // Ignore id field completely - don't validate it even if it's sent
         const missingCore =
-          !name || !course || !phone || !parents_phone || !main_center || age === undefined || !gender || !school;
+          !name || !course || !phone || !parents_phone || !main_center || age === undefined || !gender ||
+          (NATIONAL_SYSTEM && !school);
         const missingGrade = !NATIONAL_SYSTEM && !grade;
         if (missingCore || missingGrade) {
           return res.status(400).json({ error: 'All fields are required' });
@@ -566,11 +572,13 @@ export default async function handler(req, res) {
       if (!normalizedPhone || normalizedPhone.length < 8) {
         return res.status(400).json({ error: 'Please enter a valid student phone number' });
       }
-      const phoneTaken = await db.collection('students').findOne({
-        phone: { $in: phoneVariants(normalizedPhone) },
-      });
-      if (phoneTaken) {
-        return res.status(409).json({ error: 'This phone number is already used by another student' });
+      if (NATIONAL_SYSTEM) {
+        const phoneTaken = await db.collection('students').findOne({
+          phone: { $in: phoneVariants(normalizedPhone) },
+        });
+        if (phoneTaken) {
+          return res.status(409).json({ error: 'This phone number is already used by another student' });
+        }
       }
       
       // New students start with empty lessons object (not weeks array)
@@ -592,6 +600,12 @@ export default async function handler(req, res) {
       
       // Initialize mockExams array (50 exams, all null by default)
       const mockExamsArray = mockExams || Array(50).fill(null).map(() => ({
+        mathDegree: null,
+        mathOutOf: null,
+        mathPercentage: null,
+        englishDegree: null,
+        englishOutOf: null,
+        englishPercentage: null,
         examDegree: null,
         outOf: null,
         percentage: null,
@@ -605,7 +619,7 @@ export default async function handler(req, res) {
         grade: grade || null, // GradeSelect field; not required when NATIONAL_SYSTEM
         course: course || null, // Course/Grade from CourseSelect (EST, SAT, ACT, etc.)
         courseType: NATIONAL_SYSTEM ? null : (courseType || "basics"),
-        school,
+        school: school && String(school).trim() ? String(school).trim() : null,
         phone: normalizedPhone,
         parentsPhone: parents_phone,
         main_center,

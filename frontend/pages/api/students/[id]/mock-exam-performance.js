@@ -173,7 +173,13 @@ export default async function handler(req, res) {
         lessonDataMap[lessonName] = {
           lesson_name: lessonName,
           percentage: 0,
-          result: '0 / 0'
+          result: '0 / 0',
+          mathDegree: null,
+          mathOutOf: null,
+          mathPercentage: null,
+          englishDegree: null,
+          englishOutOf: null,
+          englishPercentage: null,
         };
       }
       
@@ -195,13 +201,53 @@ export default async function handler(req, res) {
         
         // Only use fallback if the lesson exists in chart but has no data yet
         if (lessonDataMap[examLabel] && lessonDataMap[examLabel].percentage === 0) {
-          if (exam.percentage > 0 || exam.examDegree > 0) {
+          if (exam.percentage != null || exam.examDegree != null ||
+              exam.mathPercentage != null || exam.englishPercentage != null) {
             lessonDataMap[examLabel].percentage = exam.percentage || 0;
             lessonDataMap[examLabel].result = exam.examDegree && exam.outOf 
               ? `${exam.examDegree} / ${exam.outOf}` 
               : '0 / 0';
+            lessonDataMap[examLabel].mathDegree = exam.mathDegree ?? null;
+            lessonDataMap[examLabel].mathOutOf = exam.mathOutOf ?? null;
+            lessonDataMap[examLabel].mathPercentage = exam.mathPercentage ?? null;
+            lessonDataMap[examLabel].englishDegree = exam.englishDegree ?? null;
+            lessonDataMap[examLabel].englishOutOf = exam.englishOutOf ?? null;
+            lessonDataMap[examLabel].englishPercentage = exam.englishPercentage ?? null;
           }
         }
+      });
+    }
+
+    // Include manually entered Math/English results even when no online mock
+    // exam document exists for the same Exam number.
+    if (student.mockExams && Array.isArray(student.mockExams)) {
+      student.mockExams.forEach((exam, index) => {
+        if (!exam) return;
+        const hasSections =
+          exam.mathPercentage != null || exam.englishPercentage != null;
+        const hasData =
+          hasSections || exam.percentage != null || exam.examDegree != null;
+        if (!hasData) return;
+
+        const examLabel = `Exam ${index + 1}`;
+        const existing = lessonDataMap[examLabel] || {
+          lesson_name: examLabel,
+          percentage: 0,
+          result: '0 / 0',
+        };
+        lessonDataMap[examLabel] = {
+          ...existing,
+          percentage: hasSections ? null : (exam.percentage ?? existing.percentage ?? 0),
+          result: exam.examDegree != null && exam.outOf != null
+            ? `${exam.examDegree} / ${exam.outOf}`
+            : existing.result,
+          mathDegree: exam.mathDegree ?? existing.mathDegree ?? null,
+          mathOutOf: exam.mathOutOf ?? existing.mathOutOf ?? null,
+          mathPercentage: exam.mathPercentage ?? existing.mathPercentage ?? null,
+          englishDegree: exam.englishDegree ?? existing.englishDegree ?? null,
+          englishOutOf: exam.englishOutOf ?? existing.englishOutOf ?? null,
+          englishPercentage: exam.englishPercentage ?? existing.englishPercentage ?? null,
+        };
       });
     }
 

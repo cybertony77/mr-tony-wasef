@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { authMiddleware } from '../../../lib/authMiddleware';
 import { itemCenterMatchesStudentMainCenter } from '../../../lib/studentCenterMatch';
+import { parseStudentsCsv } from '../../../lib/certificatesUtils';
 
 function loadEnvConfig() {
   try {
@@ -46,33 +47,39 @@ export default async function handler(req, res) {
     let studentCourse = null;
     let studentCourseType = null;
     let studentMainCenter = null;
+  let studentIdForAccess = null;
     if (user.role === 'student') {
       const studentId = user.assistant_id || user.id;
       if (!studentId) return res.status(200).json({ success: true, materials: [] });
       const student = await db.collection('students').findOne({ id: studentId });
       if (!student) return res.status(200).json({ success: true, materials: [] });
+      studentIdForAccess = student.id;
       studentCourse = student.course;
       studentCourseType = student.courseType;
       studentMainCenter = student.main_center;
     }
 
     const allMaterials = await db.collection('material').find({}).sort({ material_name: 1, date: -1 }).toArray();
-    if (!studentCourse) return res.status(200).json({ success: true, materials: [] });
-
     const studentCourseTrimmed = (studentCourse || '').trim();
     const studentCourseTypeTrimmed = (studentCourseType || '').trim();
     const filtered = allMaterials.filter((item) => {
       const itemCourse = (item.course || '').trim();
       const itemCourseType = (item.courseType || '').trim();
       const itemState = item.state || 'Activated';
+      const isPaid = item.payment_state === 'paid';
+      const paidStudentMatch = parseStudentsCsv(item.students_allowed).some((id) => String(id) === String(studentIdForAccess));
       const courseMatch = itemCourse.toLowerCase() === 'all' || itemCourse.toLowerCase() === studentCourseTrimmed.toLowerCase();
       const courseTypeMatch = NATIONAL_SYSTEM || !itemCourseType || !studentCourseTypeTrimmed || itemCourseType.toLowerCase() === studentCourseTypeTrimmed.toLowerCase();
       const isActivated = itemState !== 'Deactivated';
       const centerMatch = itemCenterMatchesStudentMainCenter(item.center, studentMainCenter);
-      return courseMatch && courseTypeMatch && isActivated && centerMatch;
+      if (isPaid) return paidStudentMatch && isActivated;
+      return Boolean(studentCourse) && courseMatch && courseTypeMatch && isActivated && centerMatch;
     });
 
-    return res.status(200).json({ success: true, materials: filtered });
+    return res.status(200).json({
+      success: true,
+      materials: filtered.map(({ students_allowed, ...item }) => item),
+    });
   } catch (error) {
     console.error('Student materials API error:', error);
     if (error.message === 'Unauthorized' || error.message === 'No token provided') {

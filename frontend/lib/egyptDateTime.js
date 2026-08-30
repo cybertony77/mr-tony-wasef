@@ -39,6 +39,24 @@ export function formatEgyptDateTime(input = new Date()) {
   return `${day}/${month}/${year} at ${hour}:${minute} ${period}`;
 }
 
+/** Format attendance as "DD/MM/YYYY in Center at h:mm AM/PM". */
+export function formatEgyptAttendance(input = new Date(), center = 'Online') {
+  const date = input instanceof Date ? input : new Date(input);
+  if (Number.isNaN(date.getTime())) return '—';
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: EGYPT_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+  const parts = formatter.formatToParts(date);
+  const get = (type) => parts.find((part) => part.type === type)?.value || '';
+  return `${get('day')}/${get('month')}/${get('year')} in ${center || 'Unknown Center'} at ${get('hour').replace(/^0/, '')}:${get('minute')} ${get('dayPeriod')}`;
+}
+
 /** YYYY-MM-DD for a Date/ISO instant in Africa/Cairo. */
 export function toEgyptYmd(input = new Date()) {
   const date = input instanceof Date ? input : new Date(input);

@@ -66,7 +66,16 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   
-  const { studentId, examIndex, examDegree, outOf, percentage } = req.body;
+  const {
+    studentId,
+    examIndex,
+    mathDegree,
+    mathOutOf,
+    englishDegree,
+    englishOutOf,
+    examDegree,
+    outOf,
+  } = req.body;
   
   // Validate required fields
   if (!studentId || examIndex === undefined) {
@@ -78,23 +87,69 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Exam index must be between 0 and 49' });
   }
   
-  // Check if this is a clear operation (all values are null)
-  const isClearOperation = examDegree === null && outOf === null && percentage === null;
-  
-  if (!isClearOperation) {
-    // Validate required fields for normal mock exam
-    if (!examDegree || !outOf || percentage === undefined) {
-      return res.status(400).json({ error: 'Exam degree, out of, and percentage are required' });
+  // Legacy clients sent one degree/out-of pair. Treat it as Math while accepting
+  // the new separate Math and English sections.
+  const effectiveMathDegree = mathDegree ?? examDegree;
+  const effectiveMathOutOf = mathOutOf ?? outOf;
+  const isEmpty = (value) => value === null || value === undefined || value === '';
+  const hasNewSubjectFields = [
+    mathDegree,
+    mathOutOf,
+    englishDegree,
+    englishOutOf,
+  ].some((value) => value !== undefined);
+  const isClearOperation = hasNewSubjectFields
+    ? mathDegree === null &&
+      mathOutOf === null &&
+      englishDegree === null &&
+      englishOutOf === null &&
+      isEmpty(examDegree) &&
+      isEmpty(outOf)
+    : examDegree === null && outOf === null;
+
+  const validateSection = (sectionName, degreeValue, outOfValue) => {
+    const hasInput = !isEmpty(degreeValue) || !isEmpty(outOfValue);
+    if (!hasInput) return { hasInput: false };
+    if (isEmpty(degreeValue) || isEmpty(outOfValue)) {
+      return { error: `${sectionName} degree and out of are both required` };
     }
-    
-    // Validate exam degree and outOf
-    if (examDegree < 0 || outOf <= 0 || examDegree > outOf) {
-      return res.status(400).json({ error: 'Invalid exam degree or out of value' });
+
+    const degree = Number(degreeValue);
+    const total = Number(outOfValue);
+    if (!Number.isFinite(degree) || degree < 0) {
+      return { error: `${sectionName} degree must be a valid non-negative number` };
+    }
+    if (!Number.isFinite(total) || total <= 0 || degree > total) {
+      return { error: `Invalid ${sectionName} degree or out of value` };
+    }
+    return {
+      hasInput: true,
+      degree,
+      outOf: total,
+      percentage: Math.round((degree / total) * 100),
+    };
+  };
+
+  let mathSection = { hasInput: false };
+  let englishSection = { hasInput: false };
+  if (!isClearOperation) {
+    mathSection = validateSection('Math', effectiveMathDegree, effectiveMathOutOf);
+    englishSection = validateSection('English', englishDegree, englishOutOf);
+    if (mathSection.error || englishSection.error) {
+      return res.status(400).json({ error: mathSection.error || englishSection.error });
+    }
+    if (!mathSection.hasInput && !englishSection.hasInput) {
+      return res.status(400).json({ error: 'Enter Math or English degree and out of values' });
     }
   }
   
   console.log('📝 Saving mock exam for student:', studentId, 'exam:', examIndex + 1);
-  console.log('📊 Exam data:', { examDegree, outOf, percentage });
+  console.log('📊 Exam data:', {
+    mathDegree: effectiveMathDegree,
+    mathOutOf: effectiveMathOutOf,
+    englishDegree,
+    englishOutOf,
+  });
   
   let client;
   try {
@@ -123,6 +178,12 @@ export default async function handler(req, res) {
     if (!student.mockExams || !Array.isArray(student.mockExams)) {
       // Create array with proper default objects
       const defaultMockExams = Array(50).fill(null).map(() => ({
+        mathDegree: null,
+        mathOutOf: null,
+        mathPercentage: null,
+        englishDegree: null,
+        englishOutOf: null,
+        englishPercentage: null,
         examDegree: null,
         outOf: null,
         percentage: null,
@@ -148,6 +209,12 @@ export default async function handler(req, res) {
     if (isClearOperation) {
       // Clear operation - set all values to null
       examData = {
+        mathDegree: null,
+        mathOutOf: null,
+        mathPercentage: null,
+        englishDegree: null,
+        englishOutOf: null,
+        englishPercentage: null,
         examDegree: null,
         outOf: null,
         percentage: null,
@@ -156,10 +223,21 @@ export default async function handler(req, res) {
       console.log('🗑️ Clearing mock exam data for student:', student.name);
     } else {
       // Normal mock exam operation — always Egypt time, not server local/UTC
+      const totalDegree =
+        (mathSection.degree || 0) + (englishSection.degree || 0);
+      const totalOutOf =
+        (mathSection.outOf || 0) + (englishSection.outOf || 0);
       examData = {
-        examDegree: examDegree,
-        outOf: outOf,
-        percentage: percentage,
+        mathDegree: mathSection.hasInput ? mathSection.degree : null,
+        mathOutOf: mathSection.hasInput ? mathSection.outOf : null,
+        mathPercentage: mathSection.hasInput ? mathSection.percentage : null,
+        englishDegree: englishSection.hasInput ? englishSection.degree : null,
+        englishOutOf: englishSection.hasInput ? englishSection.outOf : null,
+        englishPercentage: englishSection.hasInput ? englishSection.percentage : null,
+        // Keep aggregate fields for old screens and consumers.
+        examDegree: totalDegree,
+        outOf: totalOutOf,
+        percentage: Math.round((totalDegree / totalOutOf) * 100),
         date: formatEgyptDateTime(new Date())
       };
       console.log('💾 Saving mock exam data for student:', student.name);

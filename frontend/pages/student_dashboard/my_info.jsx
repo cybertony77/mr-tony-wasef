@@ -831,7 +831,7 @@ export default function MyInfo() {
               )}
               <div className="detail-item">
                 <div className="detail-label">School</div>
-                <div className="detail-value">{student.school || 'N/A'}</div>
+                <div className="detail-value">{student.school || 'No School'}</div>
               </div>
               {isPaymentSystemEnabled && (
                 <div className="detail-item">

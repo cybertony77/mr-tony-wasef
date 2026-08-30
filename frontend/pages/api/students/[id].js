@@ -75,7 +75,7 @@ export default async function handler(req, res) {
       }
       
       let lastAttendance = currentLesson.lastAttendance;
-      if (currentLesson.lastAttendance && currentLesson.lastAttendanceCenter) {
+      if (currentLesson.lastAttendance && currentLesson.lastAttendanceCenter && !/\bat\s+\d{1,2}:\d{2}\s+(?:AM|PM)\b/i.test(currentLesson.lastAttendance)) {
         // Try to parse the date part and reformat
         const dateMatch = currentLesson.lastAttendance.match(/(\d{2})[-/](\d{2})[-/](\d{4})/);
         let dateStr = currentLesson.lastAttendance;
@@ -215,12 +215,14 @@ export default async function handler(req, res) {
         if (!normalizedPhone || normalizedPhone.length < 8) {
           return res.status(400).json({ error: 'Please enter a valid student phone number' });
         }
-        const phoneTaken = await db.collection('students').findOne({
-          phone: { $in: phoneVariants(normalizedPhone) },
-          id: { $ne: student_id },
-        });
-        if (phoneTaken) {
-          return res.status(409).json({ error: 'This phone number is already used by another student' });
+        if (NATIONAL_SYSTEM) {
+          const phoneTaken = await db.collection('students').findOne({
+            phone: { $in: phoneVariants(normalizedPhone) },
+            id: { $ne: student_id },
+          });
+          if (phoneTaken) {
+            return res.status(409).json({ error: 'This phone number is already used by another student' });
+          }
         }
         update.phone = normalizedPhone;
       }
@@ -241,8 +243,8 @@ export default async function handler(req, res) {
       if (gender !== undefined && gender !== null) {
         update.gender = gender;
       }
-      if (school !== undefined && school !== null) {
-        update.school = school;
+      if (school !== undefined) {
+        update.school = school === null || school === '' ? null : String(school).trim();
       }
       if (main_comment !== undefined) {
         update.main_comment = main_comment; // allow null or string

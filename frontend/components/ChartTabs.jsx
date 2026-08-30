@@ -38,7 +38,15 @@ export default function ChartTabs({
     if (mockExamChartData && Array.isArray(mockExamChartData) && mockExamChartData.length > 0) {
       return mockExamChartData.map(item => ({
         exam: item.lesson_name || item.lesson || 'Unknown',
-        percentage: item.percentage || 0,
+        percentage: item.mathPercentage != null || item.englishPercentage != null
+          ? null
+          : (item.percentage || 0),
+        mathPercentage: item.mathPercentage ?? item.math_percentage ?? null,
+        englishPercentage: item.englishPercentage ?? item.english_percentage ?? null,
+        mathDegree: item.mathDegree ?? item.math_degree ?? null,
+        mathOutOf: item.mathOutOf ?? item.math_out_of ?? null,
+        englishDegree: item.englishDegree ?? item.english_degree ?? null,
+        englishOutOf: item.englishOutOf ?? item.english_out_of ?? null,
         examDegree: null,
         outOf: null,
         result: item.result || '0 / 0',
@@ -82,12 +90,24 @@ export default function ChartTabs({
     if (mockExams && Array.isArray(mockExams)) {
       mockExams.forEach((exam, index) => {
         const examLabel = `Exam ${index + 1}`;
-        if (!examDataMap[examLabel] && exam && (exam.percentage > 0 || exam.examDegree > 0)) {
+        if (!examDataMap[examLabel] && exam && (
+          exam.percentage != null ||
+          exam.examDegree != null ||
+          exam.mathPercentage != null ||
+          exam.englishPercentage != null
+        )) {
+          const hasSections = exam.mathPercentage != null || exam.englishPercentage != null;
           examDataMap[examLabel] = {
             exam: examLabel,
-            percentage: exam.percentage || 0,
-            examDegree: exam.examDegree || 0,
-            outOf: exam.outOf || 0,
+            percentage: hasSections ? null : (exam.percentage || 0),
+            mathPercentage: exam.mathPercentage ?? null,
+            englishPercentage: exam.englishPercentage ?? null,
+            mathDegree: exam.mathDegree ?? null,
+            mathOutOf: exam.mathOutOf ?? null,
+            englishDegree: exam.englishDegree ?? null,
+            englishOutOf: exam.englishOutOf ?? null,
+            examDegree: exam.examDegree ?? null,
+            outOf: exam.outOf ?? null,
             date: exam.date || null
           };
         }

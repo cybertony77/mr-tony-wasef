@@ -91,7 +91,8 @@ export default function AttendanceLessonSelect({
   const actualOnToggle = onToggle || (() => setInternalIsOpen(!internalIsOpen));
   const actualOnClose = onClose || (() => setInternalIsOpen(false));
 
-  // Position panel so it is not clipped by modals / viewport (open up when needed)
+  // Keep the panel below the trigger. Limit its height to the available space
+  // instead of flipping it upward, so the lesson menu behaves consistently.
   useEffect(() => {
     if (!actualIsOpen || !triggerRef.current) return;
 
@@ -99,17 +100,15 @@ export default function AttendanceLessonSelect({
       const rect = triggerRef.current.getBoundingClientRect();
       const gap = 6;
       const spaceBelow = window.innerHeight - rect.bottom - gap - 12;
-      const spaceAbove = rect.top - gap - 12;
       const preferredMax = Math.min(380, Math.floor(window.innerHeight * 0.72));
-      const openUp = spaceBelow < 180 && spaceAbove > spaceBelow;
-      const available = Math.max(140, openUp ? spaceAbove : spaceBelow);
-      const maxHeight = Math.min(preferredMax, available);
+      const maxHeight = Math.min(preferredMax, Math.max(140, spaceBelow));
 
       setPanelStyle({
         maxHeight: `${maxHeight}px`,
-        ...(openUp
-          ? { top: 'auto', bottom: '100%', marginTop: 0, marginBottom: `${gap}px` }
-          : { top: '100%', bottom: 'auto', marginTop: `${gap}px`, marginBottom: 0 }),
+        top: '100%',
+        bottom: 'auto',
+        marginTop: `${gap}px`,
+        marginBottom: 0,
       });
     };
 

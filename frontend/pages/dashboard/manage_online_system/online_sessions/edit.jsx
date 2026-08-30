@@ -578,8 +578,11 @@ export default function EditOnlineSession() {
       videos: finalVideoData,
       description: formData.description.trim() || null,
       payment_state: paymentState,
-      viewing_limit_type: needsViewingSettings(paymentState) ? viewingLimitType : null,
-      viewing_limit_value: needsViewingSettings(paymentState) ? Number(viewingLimitValue) : null,
+      viewing_limit_type: needsViewingSettings(paymentState) && viewingLimitType ? viewingLimitType : null,
+      viewing_limit_value:
+        needsViewingSettings(paymentState) && viewingLimitType && viewingLimitValue !== ''
+          ? Number(viewingLimitValue)
+          : null,
     };
 
     if (accountState) {

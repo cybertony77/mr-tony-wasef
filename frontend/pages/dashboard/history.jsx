@@ -750,7 +750,7 @@ export default function History() {
                         {courseLabels.showCourseType && (
                         <Table.Td style={{ width: '120px', minWidth: '120px', textAlign: 'center' }}>{student.courseType || 'N/A'}</Table.Td>
                         )}
-                        <Table.Td style={{ width: '180px', minWidth: '180px', wordWrap: 'break-word', textAlign: 'center' }}>{student.school || 'N/A'}</Table.Td>
+                        <Table.Td style={{ width: '180px', minWidth: '180px', wordWrap: 'break-word', textAlign: 'center' }}>{student.school || 'No School'}</Table.Td>
                         <Table.Td style={{ width: '120px', minWidth: '120px', textAlign: 'center' }}>{student.phone || 'N/A'}</Table.Td>
                         <Table.Td style={{ width: '130px', minWidth: '130px', textAlign: 'center' }}>{student.parentsPhone || 'N/A'}</Table.Td>
                         <Table.Td style={{ width: '200px', minWidth: '200px', textAlign: 'center' }}>

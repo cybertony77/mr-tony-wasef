@@ -10,16 +10,24 @@ import AccountStateSelect from '../../components/AccountStateSelect';
 import GenderSelect from '../../components/GenderSelect';
 import Title from '../../components/Title';
 import { useCreateStudent, useCheckStudentPhone } from '../../lib/api/students';
-import { useNationalSystem, getCourseFieldLabels } from '../../lib/api/system';
+import { useNationalSystem, useSystemConfig, getCourseFieldLabels } from '../../lib/api/system';
 import PhoneInput from 'react-phone-input-2';
 import 'react-phone-input-2/lib/style.css';
 import { formatPhoneForDB, validateEgyptPhone, handleEgyptPhoneKeyDown } from '../../lib/phoneUtils';
 
+const ADD_STUDENT_PREFERENCES_KEY = 'add_student_preferences';
+
+function isPhoneEmptyOrCountryCode(value) {
+  const digits = String(value || '').replace(/[^0-9]/g, '');
+  return !digits || digits === '20';
+}
 
 export default function AddStudent() {
+  const { isLoading: systemConfigLoading } = useSystemConfig();
   const isNational = useNationalSystem();
   const courseLabels = getCourseFieldLabels(isNational);
   const containerRef = useRef(null);
+  const preferencesReadyRef = useRef(false);
   const [form, setForm] = useState({
     id: "",
     name: "",
@@ -29,8 +37,8 @@ export default function AddStudent() {
     course: "",
     courseType: "",
     school: "",
-    phone: "",
-    parentsPhone: "",
+    phone: "20",
+    parentsPhone: "20",
     main_center: "",
     comment: "",
     account_state: "Activated", // Default to Activated
@@ -80,6 +88,60 @@ export default function AddStudent() {
     };
     fetchConfig();
   }, []);
+
+  // Restore the selectors that are useful when adding several students in one visit.
+  useEffect(() => {
+    if (systemConfigLoading) return;
+
+    let savedPreferences = {};
+    try {
+      const raw = sessionStorage.getItem(ADD_STUDENT_PREFERENCES_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (parsed && typeof parsed === 'object') {
+        savedPreferences = parsed;
+      }
+    } catch {
+      // Ignore invalid or unavailable session storage.
+    }
+
+    setForm((previousForm) => ({
+      ...previousForm,
+      main_center: isNational ? '' : (savedPreferences.main_center || ''),
+      course: isNational
+        ? (savedPreferences.grade || '')
+        : (savedPreferences.course || ''),
+      courseType: isNational ? '' : (savedPreferences.courseType || ''),
+    }));
+    preferencesReadyRef.current = true;
+  }, [isNational, systemConfigLoading]);
+
+  // Store only the selectors relevant to the current system mode.
+  useEffect(() => {
+    if (systemConfigLoading || !preferencesReadyRef.current) return;
+
+    const preferences = isNational
+      ? { grade: form.course || '' }
+      : {
+          main_center: form.main_center || '',
+          course: form.course || '',
+          courseType: form.courseType || '',
+        };
+
+    try {
+      sessionStorage.setItem(
+        ADD_STUDENT_PREFERENCES_KEY,
+        JSON.stringify(preferences)
+      );
+    } catch {
+      // Ignore unavailable session storage.
+    }
+  }, [
+    form.course,
+    form.courseType,
+    form.main_center,
+    isNational,
+    systemConfigLoading,
+  ]);
 
   useEffect(() => {
     if (error) {
@@ -148,10 +210,10 @@ export default function AddStudent() {
   
   // React Query hook for creating students
   const createStudentMutation = useCreateStudent();
-  const phoneCheck = useCheckStudentPhone(form.phone);
+  const phoneCheck = useCheckStudentPhone(form.phone, null, { enabled: isNational });
   const phoneReady = formatPhoneForDB(form.phone).length >= 11;
-  const phoneTaken = phoneReady && !phoneCheck.isLoading && phoneCheck.data?.exists === true;
-  const phoneAvailable = phoneReady && !phoneCheck.isLoading && phoneCheck.data?.exists === false;
+  const phoneTaken = isNational && phoneReady && !phoneCheck.isLoading && phoneCheck.data?.exists === true;
+  const phoneAvailable = isNational && phoneReady && !phoneCheck.isLoading && phoneCheck.data?.exists === false;
 
   // Check if student ID is available
   const checkStudentId = async (id) => {
@@ -188,7 +250,15 @@ export default function AddStudent() {
 
   const handleChange = (e) => {
     // Reset QR button if user starts entering new data (when form was previously empty)
-    if (showQRButton && !form.name && !form.age && !form.grade && !form.school && !form.phone && !form.parentsPhone && !form.main_center) {
+    if (
+      showQRButton &&
+      !form.name &&
+      !form.age &&
+      !form.grade &&
+      !form.school &&
+      isPhoneEmptyOrCountryCode(form.phone) &&
+      isPhoneEmptyOrCountryCode(form.parentsPhone)
+    ) {
       setShowQRButton(false);
       setNewId("");
     }
@@ -208,7 +278,7 @@ export default function AddStudent() {
     if (!isNational && !form.grade?.trim()) return false;
     if (!form.course?.trim()) return false;
     if (!isNational && !form.courseType?.trim()) return false;
-    if (!form.school?.trim()) return false;
+    if (isNational && !form.school?.trim()) return false;
     if (!isPhoneFilled(form.phone) || !isPhoneFilled(form.parentsPhone)) return false;
     if (!form.main_center?.trim()) return false;
     if (!form.account_state?.trim()) return false;
@@ -219,18 +289,18 @@ export default function AddStudent() {
     areRequiredFieldsFilled() &&
     !createStudentMutation.isPending &&
     !phoneTaken &&
-    !(phoneReady && phoneCheck.isLoading);
+    !(isNational && phoneReady && phoneCheck.isLoading);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
     setSuccess(false);
 
-    if (phoneTaken) {
+    if (isNational && phoneTaken) {
       setError("This phone number is already used, please use another one");
       return;
     }
-    if (phoneReady && (phoneCheck.isLoading || !phoneCheck.data)) {
+    if (isNational && phoneReady && (phoneCheck.isLoading || !phoneCheck.data)) {
       setError("Please wait while we check the phone number");
       return;
     }
@@ -356,12 +426,12 @@ export default function AddStudent() {
           age: "",
           gender: "",
           grade: "",
-          course: "",
-          courseType: "basics",
+          course: form.course,
+          courseType: isNational ? "" : form.courseType,
           school: "",
-          phone: "",
-          parentsPhone: "",
-          main_center: "",
+          phone: "20",
+          parentsPhone: "20",
+          main_center: isNational ? "" : form.main_center,
           comment: "",
           account_state: "Activated",
           payment: {
@@ -400,12 +470,12 @@ export default function AddStudent() {
       age: "",
       gender: "",
       grade: "",
-      course: "",
-      courseType: "basics",
+      course: form.course,
+      courseType: isNational ? "" : form.courseType,
       school: "",
-      phone: "",
-      parentsPhone: "",
-      main_center: "",
+      phone: "20",
+      parentsPhone: "20",
+      main_center: isNational ? "" : form.main_center,
       comment: "",
       account_state: "Activated",
       payment: {
@@ -911,14 +981,14 @@ Best regards
             </div>
             )}
             <div className="form-group">
-              <label>School <span style={{color: 'red'}}>*</span></label>
+              <label>School {isNational && <span style={{color: 'red'}}>*</span>}</label>
               <input
                 className="form-input"
                 name="school"
                 placeholder="Enter student's school"
                 value={form.school}
                 onChange={handleChange}
-                required
+                required={isNational}
                 autocomplete="off"
               />
             </div>

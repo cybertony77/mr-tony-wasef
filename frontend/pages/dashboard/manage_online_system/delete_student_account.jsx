@@ -526,7 +526,7 @@ export default function DeleteStudentAccount() {
                 {courseLabels.showCourseType && student.courseType && (
                   <p><strong>Course Type:</strong> {student.courseType}</p>
                 )}
-                <p><strong>School:</strong> {student.school}</p>
+                <p><strong>School:</strong> {student.school || 'No School'}</p>
                 <p><strong>Phone:</strong> {student.phone}</p>
                 <p><strong>Email:</strong> {userAccount?.email || "No Email"}</p>
                 <p><strong>Parent's Phone:</strong> {student.parents_phone || student.parentsPhone}</p>

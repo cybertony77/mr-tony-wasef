@@ -174,7 +174,11 @@ export default async function handler(req, res) {
           const totalQuestions = parseInt(resultParts[1], 10) || 0;
           const percentageNum = typeof percentage === 'string' ? parseInt(percentage.toString().replace('%', ''), 10) : percentage;
 
+          const existingExamData = Array.isArray(student.mockExams)
+            ? (student.mockExams[examIndex] || {})
+            : {};
           const examData = {
+            ...existingExamData,
             examDegree: correctCount,
             outOf: totalQuestions,
             percentage: percentageNum,
@@ -184,6 +188,12 @@ export default async function handler(req, res) {
           // Initialize mockExams array if it doesn't exist
           if (!student.mockExams || !Array.isArray(student.mockExams)) {
             const defaultMockExams = Array(50).fill(null).map(() => ({
+              mathDegree: null,
+              mathOutOf: null,
+              mathPercentage: null,
+              englishDegree: null,
+              englishOutOf: null,
+              englishPercentage: null,
               examDegree: null,
               outOf: null,
               percentage: null,

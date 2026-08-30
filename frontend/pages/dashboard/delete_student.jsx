@@ -525,7 +525,7 @@ export default function DeleteStudent() {
                 {courseLabels.showCourseType && (
                   <p><strong>Course Type:</strong> {student.courseType || ''}</p>
                 )}
-                <p><strong>School:</strong> {student.school || 'N/A'}</p>
+                <p><strong>School:</strong> {student.school || 'No School'}</p>
                 <p><strong>Phone:</strong> {student.phone || 'N/A'}</p>
                 <p><strong>Parent's Phone:</strong> {student.parents_phone || student.parentsPhone || 'N/A'}</p>
                 <p><strong>Email:</strong> {userAccount?.email || student.email || 'No Email'}</p>

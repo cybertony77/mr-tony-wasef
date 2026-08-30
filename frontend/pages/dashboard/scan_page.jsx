@@ -1981,12 +1981,10 @@ export default function QR() {
               <span className="info-value">{student.main_center}</span>
             </div>
             )}
-            {student.school && (
             <div className="info-item">
               <span className="info-label">School</span>
-              <span className="info-value">{student.school}</span>
+              <span className="info-value">{student.school || 'No School'}</span>
             </div>
-            )}
             {isPaymentSystemEnabled && (
             <div className="info-item">
               <span className="info-label">Available Sessions</span>

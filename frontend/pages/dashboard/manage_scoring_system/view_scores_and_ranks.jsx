@@ -417,7 +417,7 @@ export default function ViewScores() {
                               {student.courseType || '-'}
                             </Table.Td>
                           )}
-                          <Table.Td style={{ textAlign: 'center', fontSize: cellFont }}>{student.school || '-'}</Table.Td>
+                          <Table.Td style={{ textAlign: 'center', fontSize: cellFont }}>{student.school || 'No School'}</Table.Td>
                           <Table.Td style={{ textAlign: 'center', fontSize: cellFont }}>
                             {student.main_center || '-'}
                           </Table.Td>

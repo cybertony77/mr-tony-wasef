@@ -61,6 +61,7 @@ const envConfig = loadEnvConfig();
 const MONGO_URI =
   envConfig.MONGO_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/demo-attendance-system';
 const DB_NAME = envConfig.DB_NAME || process.env.DB_NAME || 'demo-attendance-system';
+const NATIONAL_SYSTEM = envConfig.NATIONAL_SYSTEM === 'true' || process.env.NATIONAL_SYSTEM === 'true';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET' && req.method !== 'POST') {
@@ -71,6 +72,10 @@ export default async function handler(req, res) {
     await authMiddleware(req);
   } catch {
     return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  if (!NATIONAL_SYSTEM) {
+    return res.status(200).json({ exists: false, phone: null, studentId: null });
   }
 
   const rawPhone =

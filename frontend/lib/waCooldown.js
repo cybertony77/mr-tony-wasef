@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-export const WA_COOLDOWN_SECONDS = 30;
+export const WA_COOLDOWN_SECONDS = 45;
 const STORAGE_PREFIX = 'wa_send_cooldown_';
 
 function storageKey(senderId, scope = 'default') {

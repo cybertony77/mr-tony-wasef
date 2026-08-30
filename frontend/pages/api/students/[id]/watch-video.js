@@ -10,7 +10,7 @@ import {
   getFreeViewsRemaining,
   attendedInCenter,
 } from '../../../../lib/onlineSessionViewing';
-import { formatEgyptDateTime } from '../../../../lib/egyptDateTime';
+import { formatEgyptDateTime, formatEgyptAttendance } from '../../../../lib/egyptDateTime';
 
 function loadEnvConfig() {
   try {
@@ -94,7 +94,7 @@ export default async function handler(req, res) {
       });
     }
 
-    const { session_id, action, payment_state } = req.body; // action: 'view' | 'finish' | 'start_free_access' | 'decrement_free_views'
+    const { session_id, action } = req.body; // action: 'view' | 'finish' | 'start_free_access' | 'decrement_free_views'
 
     if (!session_id) {
       return res.status(400).json({ error: 'Session ID is required' });
@@ -115,8 +115,8 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Session not found' });
     }
 
-    // Determine payment state from request body or session
-    const effectivePaymentState = payment_state || session.payment_state;
+    // Always use the persisted payment state; never trust a client-supplied value.
+    const effectivePaymentState = session.payment_state;
     const isPaidVideo = effectivePaymentState === 'paid';
     const isFreeLimited = FREE_ONLINE_SESSION_PAYMENT_STATES.includes(effectivePaymentState);
     const sessionIdStr = typeof session_id === 'string' ? session_id : session_id.toString();
@@ -133,13 +133,13 @@ export default async function handler(req, res) {
       }
 
       const lessonData = getStudentLesson(student.lessons, session.lesson);
-      // number_of_days free access requires center attendance (not Online)
+      // "Free if attended in center" requires a real center attendance.
       if (
-        session.viewing_limit_type === 'number_of_days' &&
+        session.payment_state === 'free_if_attended_in_center' &&
         !attendedInCenter(lessonData)
       ) {
         return res.status(403).json({
-          error: 'Free day access requires center attendance for this lesson',
+          error: 'Center attendance is required for this lesson',
           require_vvc: true,
         });
       }
@@ -379,7 +379,7 @@ export default async function handler(req, res) {
       const lesson = session.lesson;
       if (lesson && lesson.trim()) {
         const attendanceDate = formatDate(new Date());
-        const attendanceString = `${attendanceDate} in Online`;
+        const attendanceString = formatEgyptAttendance(new Date(), 'Online');
 
         const lessonPatch = {
           attended: true,

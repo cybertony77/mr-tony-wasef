@@ -23,6 +23,13 @@ export function validateViewingSettings(paymentState, viewingLimitType, viewingL
   if (!needsViewingSettings(paymentState)) {
     return {};
   }
+  // Viewing settings are optional. An empty type and value means unlimited free access.
+  if (
+    (viewingLimitType === '' || viewingLimitType === null || viewingLimitType === undefined) &&
+    (viewingLimitValue === '' || viewingLimitValue === null || viewingLimitValue === undefined)
+  ) {
+    return {};
+  }
   const errors = {};
   if (viewingLimitType !== 'number_of_views' && viewingLimitType !== 'number_of_days') {
     errors.viewingLimitType = '❌ Viewing Settings type is required';
@@ -70,7 +77,7 @@ export default function OnlineSessionViewingSettings({
   return (
     <div className="viewing-settings-section" style={{ marginBottom: '20px' }}>
       <label style={{ display: 'block', marginBottom: '12px', fontWeight: '600', textAlign: 'left' }}>
-        Viewing Settings <span style={{ color: 'red' }}>*</span>
+        Viewing Settings <span style={{ color: '#6c757d', fontWeight: 400 }}>(Optional)</span>
       </label>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         <label style={radioStyle(viewingLimitType === 'number_of_views')}>

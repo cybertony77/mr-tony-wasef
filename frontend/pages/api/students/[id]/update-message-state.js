@@ -51,7 +51,10 @@ export default async function handler(req, res) {
   
   const { id } = req.query;
   const student_id = parseInt(id);
-  const { message_state, lesson } = req.body;
+  const { message_state, lesson, message_state_field } = req.body;
+  const messageStateField = message_state_field === 'student_message_state'
+    ? 'student_message_state'
+    : 'message_state';
   
   console.log('📱 Updating message state for student:', student_id);
   console.log('📅 Message state data:', { message_state, lesson });
@@ -86,7 +89,7 @@ export default async function handler(req, res) {
     // Determine which lesson to update
     const lessonName = lesson || (lessonNames.length > 0 ? lessonNames[0] : 'Lesson 1');
     
-    console.log(`Updating message_state for student ${student_id}, lesson ${lessonName} to:`, message_state);
+    console.log(`Updating ${messageStateField} for student ${student_id}, lesson ${lessonName} to:`, message_state);
     
     // Ensure the target lesson exists; if not, create it with default schema
     const ensureLessonExists = async () => {
@@ -122,7 +125,7 @@ export default async function handler(req, res) {
     
     // Update the specific lesson in the lessons object
     const nextLessons = mergeStudentLesson(student.lessons, lessonName, {
-      message_state: !!message_state,
+      [messageStateField]: !!message_state,
     });
     const result = await db.collection('students').updateOne(
       { id: student_id },
@@ -133,7 +136,7 @@ export default async function handler(req, res) {
       console.log('❌ Failed to update student:', student_id);
       return res.status(404).json({ error: 'Student not found' });
     }
-    console.log(`✅ Message state updated for student ${student_id}, lesson ${lessonName} to ${!!message_state}`);
+    console.log(`✅ ${messageStateField} updated for student ${student_id}, lesson ${lessonName} to ${!!message_state}`);
     
     res.json({ success: true });
   } catch (error) {

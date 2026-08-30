@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { authMiddleware } from '../../../../lib/authMiddleware';
 import { mergeStudentLesson } from '../../../../lib/studentLessons';
+import { formatEgyptAttendance } from '../../../../lib/egyptDateTime';
 
 function loadEnvConfig() {
   try {
@@ -118,7 +119,7 @@ export default async function handler(req, res) {
       const lessonName = lesson || session.lesson;
       if (lessonName && lessonName.trim()) {
         const attendanceDate = formatDate(new Date());
-        const attendanceString = `${attendanceDate} in Online`;
+        const attendanceString = formatEgyptAttendance(new Date(), 'Online');
 
         const lessonPatch = {
           view_homework_video: true,

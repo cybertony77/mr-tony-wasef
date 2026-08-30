@@ -122,8 +122,13 @@ export default async function handler(req, res) {
       if (examMatch) {
         const examIndex = parseInt(examMatch[1], 10) - 1; // "Exam 1" → index 0
         if (examIndex >= 0 && examIndex < 50) {
-          // Reset the exam index to null values
+          // Reset the online result while preserving manually entered
+          // Math/English results stored in the same legacy array.
+          const existingManualData = Array.isArray(student.mockExams)
+            ? (student.mockExams[examIndex] || {})
+            : {};
           updateFields[`mockExams.${examIndex}`] = {
+            ...existingManualData,
             examDegree: null,
             outOf: null,
             percentage: null,

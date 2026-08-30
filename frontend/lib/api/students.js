@@ -128,9 +128,9 @@ const studentsApi = {
   },
 
   // Update message state
-  updateMessageState: async (id, message_state, lesson) => {
+  updateMessageState: async (id, message_state, lesson, message_state_field) => {
     const response = await apiClient.post(`/api/students/${id}/update-message-state`,
-      { message_state, lesson }
+      { message_state, lesson, message_state_field }
     );
     return response.data;
   },
@@ -433,8 +433,8 @@ export const useUpdateMessageState = () => {
   const queryClient = useQueryClient();
   
   return useMutation({
-    mutationFn: ({ id, message_state, lesson }) => {
-      return studentsApi.updateMessageState(id, message_state, lesson);
+    mutationFn: ({ id, message_state, lesson, message_state_field }) => {
+      return studentsApi.updateMessageState(id, message_state, lesson, message_state_field);
     },
     onSettled: async (_, __, { id }) => {
       queryClient.invalidateQueries({ queryKey: studentKeys.detail(id) });

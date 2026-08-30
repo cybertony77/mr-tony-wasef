@@ -11,25 +11,36 @@ import 'react-phone-input-2/lib/style.css';
 import { formatPhoneForDB, validateEgyptPhone, handleEgyptPhoneKeyDown } from '../../lib/phoneUtils';
 
 const ASSISTANT_CREDENTIALS_KEY = 'assistant_wa_credentials';
+const EMPTY_FORM = {
+  id: "",
+  name: "",
+  phone: "20",
+  email: "",
+  password: "",
+  role: "assistant",
+  account_state: "Activated",
+  ATCA: "no",
+};
+const EMPTY_CREDENTIALS = {
+  username: '',
+  password: '',
+  phone: '',
+  name: '',
+};
 
 export default function AddAssistant() {
   const { data: systemConfig } = useSystemConfig();
   const systemName = systemConfig?.name || 'Demo Attendance System';
   const systemDomain = (systemConfig?.domain || '').replace(/\/+$/, '') || (typeof window !== 'undefined' ? window.location.origin : '');
 
-  const [form, setForm] = useState({ id: "", name: "", phone: "", email: "", password: "", role: "assistant", account_state: "Activated", ATCA: "no" });
+  const [form, setForm] = useState(EMPTY_FORM);
   const [confirmPassword, setConfirmPassword] = useState("");
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [showWhatsAppSection, setShowWhatsAppSection] = useState(false);
-  const [savedCredentials, setSavedCredentials] = useState({
-    username: '',
-    password: '',
-    phone: '',
-    name: '',
-  });
+  const [savedCredentials, setSavedCredentials] = useState(EMPTY_CREDENTIALS);
 
   // React Query hooks
   const createAssistantMutation = useCreateAssistant();
@@ -56,25 +67,40 @@ export default function AddAssistant() {
     }
   }, [success]);
 
-  // Restore credentials section from sessionStorage if present
+  // Start each visit with a clean form and remove credentials when leaving the page.
   useEffect(() => {
     try {
-      const raw = sessionStorage.getItem(ASSISTANT_CREDENTIALS_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      if (parsed?.username && parsed?.password) {
-        setSavedCredentials({
-          username: parsed.username,
-          password: parsed.password,
-          phone: parsed.phone || '',
-          name: parsed.name || '',
-        });
-        setShowWhatsAppSection(true);
-      }
+      sessionStorage.removeItem(ASSISTANT_CREDENTIALS_KEY);
     } catch {
-      // ignore invalid session data
+      // Ignore unavailable session storage.
+    }
+
+    return () => {
+      try {
+        sessionStorage.removeItem(ASSISTANT_CREDENTIALS_KEY);
+      } catch {
+        // Ignore unavailable session storage.
+      }
     }
   }, []);
+
+  const resetAssistantForm = () => {
+    setForm({ ...EMPTY_FORM });
+    setConfirmPassword("");
+    setSavedCredentials({ ...EMPTY_CREDENTIALS });
+    setShowWhatsAppSection(false);
+    setShowPassword(false);
+    setShowConfirmPassword(false);
+    setSuccess(false);
+    setError("");
+    createAssistantMutation.reset();
+
+    try {
+      sessionStorage.removeItem(ASSISTANT_CREDENTIALS_KEY);
+    } catch {
+      // Ignore unavailable session storage.
+    }
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -183,7 +209,7 @@ export default function AddAssistant() {
         setSavedCredentials(credentialsSnapshot);
         setShowWhatsAppSection(true);
         setSuccess(true);
-        setForm({ id: "", name: "", phone: "", email: "", password: "", role: "assistant", account_state: "Activated", ATCA: "no" });
+        setForm({ ...EMPTY_FORM });
         setConfirmPassword("");
       },
       onError: (err) => {
@@ -400,6 +426,28 @@ Best regards,
             border: 2px solid rgba(37, 211, 102, 0.25);
             box-sizing: border-box;
             width: 100%;
+          }
+          .add-another-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            width: 100%;
+            margin-top: 24px;
+            padding: 13px 18px;
+            border: none;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #15b0ef 0%, #15d0e7 100%);
+            color: white;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            box-shadow: 0 4px 16px rgba(21, 176, 239, 0.25);
+            transition: all 0.3s ease;
+          }
+          .add-another-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(21, 176, 239, 0.35);
           }
           .wa-title {
             color: #495057;
@@ -744,6 +792,16 @@ Best regards,
         </div>
 
         {showWhatsAppSection && savedCredentials.username && savedCredentials.password && (
+          <>
+          <button
+            type="button"
+            onClick={resetAssistantForm}
+            className="add-another-btn"
+            title="Reset the form and add another assistant"
+          >
+            <Image src="/plus.svg" alt="" width={20} height={20} />
+            Add Another Assistant
+          </button>
           <div className="wa-container">
             <div className="wa-title">
               <Image src="/whatsapp2.svg" alt="WhatsApp" width={24} height={24} />
@@ -770,6 +828,7 @@ Best regards,
               Send WhatsApp
             </button>
           </div>
+          </>
         )}
       </div>
     </div>

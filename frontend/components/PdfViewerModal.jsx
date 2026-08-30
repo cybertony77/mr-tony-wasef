@@ -130,7 +130,14 @@ export default function PdfViewerModal({ isOpen, onClose, fileUrl, fileName }) {
             <button type="button" className="pdf-btn-icon" aria-label="Zoom in" onClick={() => setZoom((prev) => clamp(prev + 0.1, 0.6, 2.5))}>
               +
             </button>
-            <button type="button" className="pdf-btn-text" onClick={() => setZoom(1)}>
+            <button
+              type="button"
+              className="pdf-btn-text"
+              onClick={() => {
+                setZoom(1);
+                setRotation(0);
+              }}
+            >
               Reset
             </button>
           </div>

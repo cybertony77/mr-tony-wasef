@@ -52,6 +52,7 @@ export default function MaterialPage() {
   const [filterCourseType, setFilterCourseType] = useState('');
   const [filterCenter, setFilterCenter] = useState('');
   const [filterState, setFilterState] = useState('');
+  const [filterPaymentState, setFilterPaymentState] = useState('');
   const [courseOpen, setCourseOpen] = useState(false);
   const [courseTypeOpen, setCourseTypeOpen] = useState(false);
   const [centerOpen, setCenterOpen] = useState(false);
@@ -69,6 +70,7 @@ export default function MaterialPage() {
     if (filterCourseType && (item.courseType || '').trim().toLowerCase() !== filterCourseType.trim().toLowerCase()) return false;
     if (filterCenter && (item.center || '').trim().toLowerCase() !== filterCenter.trim().toLowerCase()) return false;
     if (filterState && (item.state || 'Activated') !== filterState) return false;
+    if (filterPaymentState && (item.payment_state || 'free') !== filterPaymentState) return false;
     return true;
   });
 
@@ -146,6 +148,18 @@ export default function MaterialPage() {
               <label style={{ display: 'block', marginBottom: 8, fontWeight: 600 }}>Filter by Material State</label>
               <AccountStateSelect value={filterState || null} onChange={(s) => setFilterState(s || '')} label="Material State" placeholder="Select Material State" style={{ marginBottom: 0, hideLabel: true }} />
             </div>
+            <div style={{ flex: 1, minWidth: 180 }}>
+              <label style={{ display: 'block', marginBottom: 8, fontWeight: 600 }}>Filter by Payment State</label>
+              <select
+                value={filterPaymentState}
+                onChange={(e) => setFilterPaymentState(e.target.value)}
+                style={{ width: '100%', padding: '12px 16px', border: '2px solid #e9ecef', borderRadius: 10, fontSize: '1rem', background: '#fff' }}
+              >
+                <option value="">All Payment States</option>
+                <option value="free">Free</option>
+                <option value="paid">Paid</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -191,6 +205,8 @@ export default function MaterialPage() {
                     <div style={{ fontSize: '1.2rem', fontWeight: 600, marginBottom: 8 }}>{[item.course, !isNational && item.courseType, item.center, item.material_name].filter(Boolean).join(' • ')}</div>
                     <div className="material-file-badge" style={{ padding: '12px 16px', border: '2px solid #e9ecef', borderRadius: 8, display: 'inline-block' }}>
                       <span style={{ color: (item.state || 'Activated') === 'Activated' ? '#28a745' : '#dc3545', fontWeight: 600 }}>{item.state || 'Activated'}</span>
+                      <span style={{ margin: '0 8px' }}>•</span>
+                      <span style={{ color: item.payment_state === 'paid' ? '#00aaff' : '#0f766e', fontWeight: 600 }}>{item.payment_state === 'paid' ? `Paid (${String(item.students_allowed || '').split(',').map((id) => id.trim()).filter(Boolean).length} students)` : 'Free'}</span>
                       <span style={{ margin: '0 8px' }}>•</span>
                       <span style={{ fontWeight: 600 }}>{`File Name : ${item.pdf_file_name || 'file'}.pdf`}</span>
                     </div>

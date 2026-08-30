@@ -218,6 +218,7 @@ export default function SessionInfo() {
         quizDegree: null,
         comment: null,
         message_state: false, // Default to false for non-existent lessons
+        student_message_state: false,
         // Store the lesson name for WhatsApp button to use
         attendanceLesson: lessonName,
         currentLesson: lessonName
@@ -234,6 +235,7 @@ export default function SessionInfo() {
       quizDegree: lessonData.quizDegree || null,
       comment: lessonData.comment || null,
       message_state: lessonData.message_state || false,
+      student_message_state: lessonData.student_message_state || false,
       // Store the lesson name for WhatsApp button to use
       attendanceLesson: lessonName,
       currentLesson: lessonName

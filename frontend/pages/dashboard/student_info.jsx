@@ -1362,7 +1362,7 @@ export default function StudentInfo() {
               )}
                 <div className="detail-item">
                 <div className="detail-label">School</div>
-                <div className="detail-value">{currentStudent.school || 'N/A'}</div>
+                <div className="detail-value">{currentStudent.school || 'No School'}</div>
                 </div>
               {isPaymentSystemEnabled && (
                 <div className="detail-item">
@@ -1604,18 +1604,41 @@ export default function StudentInfo() {
               <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#495057', marginBottom: '20px', textAlign: 'center', borderBottom: '2px solid #1FA8DC', paddingBottom: '10px' }}>
                 Mock Exam Results
               </div>
-              {currentStudent.mockExams && Array.isArray(currentStudent.mockExams) && currentStudent.mockExams.some(exam => exam && (exam.examDegree !== null || exam.percentage !== null)) ? (
+              {currentStudent.mockExams && Array.isArray(currentStudent.mockExams) && currentStudent.mockExams.some(exam => exam && (
+                (exam.mathDegree !== null && exam.mathDegree !== undefined) ||
+                (exam.englishDegree !== null && exam.englishDegree !== undefined) ||
+                (exam.examDegree !== null && exam.examDegree !== undefined) ||
+                (exam.percentage !== null && exam.percentage !== undefined)
+              )) ? (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
                   {currentStudent.mockExams.map((exam, index) => {
-                    if (exam && (exam.examDegree !== null || exam.percentage !== null)) {
+                    if (exam && (
+                      (exam.mathDegree !== null && exam.mathDegree !== undefined) ||
+                      (exam.englishDegree !== null && exam.englishDegree !== undefined) ||
+                      (exam.examDegree !== null && exam.examDegree !== undefined) ||
+                      (exam.percentage !== null && exam.percentage !== undefined)
+                    )) {
                       return (
                         <div key={index} className="detail-item" style={{ padding: '12px' }}>
-                          <div className="detail-label">Exam {index + 1}</div>
+                          <div className="detail-label">Mock Exam {index + 1}</div>
                           <div className="detail-value">
-                            {exam.examDegree !== null && exam.outOf !== null && (
+                            {exam.mathDegree !== null && exam.mathDegree !== undefined &&
+                              exam.mathOutOf !== null && exam.mathOutOf !== undefined && (
+                              <div>Math Mock Exam: {exam.mathDegree} / {exam.mathOutOf} ({exam.mathPercentage}%)</div>
+                            )}
+                            {exam.englishDegree !== null && exam.englishDegree !== undefined &&
+                              exam.englishOutOf !== null && exam.englishOutOf !== undefined && (
+                              <div>English Mock Exam: {exam.englishDegree} / {exam.englishOutOf} ({exam.englishPercentage}%)</div>
+                            )}
+                            {(exam.mathDegree === null || exam.mathDegree === undefined) &&
+                              (exam.englishDegree === null || exam.englishDegree === undefined) &&
+                              exam.examDegree !== null && exam.examDegree !== undefined &&
+                              exam.outOf !== null && exam.outOf !== undefined && (
                               <div>Degree: {exam.examDegree} / {exam.outOf}</div>
                             )}
-                            {exam.percentage !== null && (
+                            {(exam.mathPercentage === null || exam.mathPercentage === undefined) &&
+                              (exam.englishPercentage === null || exam.englishPercentage === undefined) &&
+                              exam.percentage !== null && exam.percentage !== undefined && (
                               <div style={{ color: '#28a745', fontWeight: 'bold', marginTop: '3px', marginBottom: '3px' }}>
                                 Percentage: {exam.percentage}%
                               </div>

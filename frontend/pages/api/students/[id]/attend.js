@@ -45,6 +45,21 @@ function isPaymentSystemEnabled() {
   return live.SYSTEM_PAYMENT_SYSTEM === 'true' || process.env.SYSTEM_PAYMENT_SYSTEM === 'true';
 }
 
+function formatEgyptAttendance(center) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Africa/Cairo',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).formatToParts(new Date());
+  const getPart = (type) => parts.find((part) => part.type === type)?.value || '';
+  const hour = getPart('hour').replace(/^0/, '');
+  return `${getPart('day')}/${getPart('month')}/${getPart('year')} in ${center || 'Unknown Center'} at ${hour}:${getPart('minute')} ${getPart('dayPeriod')}`;
+}
+
 function normalizePayment(payment) {
   const src = Array.isArray(payment) ? payment[0] : payment;
   if (!src || typeof src !== 'object') {
@@ -165,20 +180,13 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'No available sessions' });
       }
       
-      // Compute attendance date in DD/MM/YYYY format using Egypt timezone
-      const now = new Date();
-      const egyptParts = new Intl.DateTimeFormat('en-GB', {
-        timeZone: 'Africa/Cairo',
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-      }).formatToParts(now);
-      const getPart = (type) => egyptParts.find((p) => p.type === type)?.value || '';
-      const attendanceDateOnly = `${getPart('day')}/${getPart('month')}/${getPart('year')}`;
+      // Store the complete attendance timestamp using the Cairo timezone.
+      const attendanceTimestamp = formatEgyptAttendance(lastAttendanceCenter);
+      const attendanceDateOnly = attendanceTimestamp.split(' in ')[0];
 
       const lessonPatch = {
         attended: true,
-        lastAttendance: lastAttendance || null,
+        lastAttendance: attendanceTimestamp,
         lastAttendanceCenter: lastAttendanceCenter || null,
         attendanceDate: attendanceDateOnly,
       };

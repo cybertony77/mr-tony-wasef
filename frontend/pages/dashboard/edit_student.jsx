@@ -45,17 +45,19 @@ export default function EditStudent() {
   const { data: allStudents } = useStudents();
   const { data: student, isLoading: studentLoading, error: studentError } = useStudent(searchId, { enabled: !!searchId });
   const updateStudentMutation = useUpdateStudent();
-  const phoneCheck = useCheckStudentPhone(formData.phone, searchId || null);
+  const phoneCheck = useCheckStudentPhone(formData.phone, searchId || null, { enabled: isNational });
   const phoneReady = formatPhoneForDB(formData.phone).length >= 11;
   const originalPhoneNormalized = formatPhoneForDB(originalStudent?.phone || '');
   const currentPhoneNormalized = formatPhoneForDB(formData.phone || '');
   const phoneUnchanged = Boolean(originalPhoneNormalized) && originalPhoneNormalized === currentPhoneNormalized;
   const phoneTaken =
+    isNational &&
     phoneReady &&
     !phoneUnchanged &&
     !phoneCheck.isLoading &&
     phoneCheck.data?.exists === true;
   const phoneAvailable =
+    isNational &&
     phoneReady &&
     !phoneCheck.isLoading &&
     (phoneUnchanged || phoneCheck.data?.exists === false);
@@ -269,6 +271,13 @@ export default function EditStudent() {
         }
         return;
       }
+      // School is optional in the non-national system and may be cleared.
+      if (key === 'school') {
+        if (formData[key] !== originalStudent[key]) {
+          changes[key] = formData[key];
+        }
+        return;
+      }
       // Only include fields that have actually changed and are not undefined/null/empty
       if (formData[key] !== originalStudent[key] &&
           formData[key] !== undefined &&
@@ -299,7 +308,7 @@ export default function EditStudent() {
     if (!isNational && !String(formData.grade || '').trim()) return false;
     if (!String(formData.course || '').trim()) return false;
     if (!isNational && !String(formData.courseType || '').trim()) return false;
-    if (!String(formData.school || '').trim()) return false;
+    if (isNational && !String(formData.school || '').trim()) return false;
     if (!isPhoneFilled(formData.phone) || !isPhoneFilled(formData.parents_phone)) return false;
     if (!String(formData.main_center || '').trim()) return false;
     if (!String(formData.account_state || '').trim()) return false;
@@ -312,18 +321,18 @@ export default function EditStudent() {
     areRequiredFieldsFilled() &&
     !updateStudentMutation.isPending &&
     !phoneTaken &&
-    !(phoneReady && !phoneUnchanged && phoneCheck.isLoading);
+    !(isNational && phoneReady && !phoneUnchanged && phoneCheck.isLoading);
 
   const handleEdit = async (e) => {
     e.preventDefault();
     setError("");
     setSuccess(false);
 
-    if (phoneTaken) {
+    if (isNational && phoneTaken) {
       setError("This phone number is already used by another student");
       return;
     }
-    if (phoneReady && !phoneUnchanged && (phoneCheck.isLoading || !phoneCheck.data)) {
+    if (isNational && phoneReady && !phoneUnchanged && (phoneCheck.isLoading || !phoneCheck.data)) {
       setError("Please wait while we check the phone number");
       return;
     }
@@ -893,14 +902,14 @@ export default function EditStudent() {
               </div>
             )}
               <div className="form-group">
-                <label>School <span style={{color: 'red'}}>*</span></label>
+                <label>School {isNational && <span style={{color: 'red'}}>*</span>}</label>
                 <input
                   className="form-input"
                   name="school"
                   placeholder="Enter student's school"
                   value={formData.school || ''}
                   onChange={handleChange}
-                  required
+                  required={isNational}
                   autocomplete="off"
                 />
             </div>

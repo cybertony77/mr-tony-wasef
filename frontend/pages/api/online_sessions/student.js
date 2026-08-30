@@ -116,9 +116,7 @@ export default async function handler(req, res) {
       
       const sessionsWithAttendance = filteredSessions.map((session) => {
         const needsCenterAttendance =
-          (session.payment_state === 'free_if_attended_in_center' ||
-            (session.payment_state === 'free' &&
-              session.viewing_limit_type === 'number_of_days')) &&
+          session.payment_state === 'free_if_attended_in_center' &&
           session.lesson;
 
         if (needsCenterAttendance) {

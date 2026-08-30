@@ -79,6 +79,17 @@ export function normalizeViewingSettingsForSave(payment_state, viewing_limit_typ
     };
   }
 
+  // An empty viewing setting means unlimited free access.
+  if (
+    (viewing_limit_type === '' || viewing_limit_type === null || viewing_limit_type === undefined) &&
+    (viewing_limit_value === '' || viewing_limit_value === null || viewing_limit_value === undefined)
+  ) {
+    return {
+      viewing_limit_type: null,
+      viewing_limit_value: null,
+    };
+  }
+
   if (!VIEWING_LIMIT_TYPES.includes(viewing_limit_type)) {
     return {
       error: 'Viewing Settings type is required and must be "number_of_views" or "number_of_days"',
@@ -120,9 +131,8 @@ export function getFreeViewsRemaining(session, studentEntry) {
  * Always uses the *current* session viewing_limit_value / type (so admin increases reopen access).
  *
  * number_of_days (free / free_if_attended_in_center):
- * - Requires center attendance (not Online)
- * - Window starts from lesson lastAttendance date (Egypt calendar)
- * - Inclusive end: attended 08/11 + 10 days → open through 18/11, then locked even if never watched
+ * - The window starts when the student first opens the video.
+ * - Inclusive end: first opened 08/11 + 10 days → open through 18/11.
  *
  * number_of_views:
  * - Countdown/usage starts from first open (first_opened_at)
@@ -148,14 +158,14 @@ export function isFreeViewingAccessValid(session, studentEntry, lessonData = nul
 
   if (type === 'number_of_days') {
     if (limit <= 0) return false;
-    // Days window is based on center attendance date — not first video open
-    if (!attendedInCenter(lessonData)) return false;
-    const attendanceYmd = parseLastAttendanceYmd(lessonData);
-    if (!attendanceYmd) return false;
-    const expiresYmd = addDaysEgyptYmd(attendanceYmd, limit); // inclusive end date
+    const startedAt = studentEntry?.first_opened_at || studentEntry?.first_viewed_at;
+    if (!startedAt) return true;
+    const startedYmd = toEgyptYmd(new Date(startedAt));
+    if (!startedYmd) return false;
+    const expiresYmd = addDaysEgyptYmd(startedYmd, limit); // inclusive end date
     const todayYmd = getEgyptYmdToday();
     if (!expiresYmd || !todayYmd) return false;
-    // Open from attendance day through attendance + N days (inclusive)
+    // Open from first access day through first access + N days (inclusive)
     return compareEgyptYmd(todayYmd, expiresYmd) <= 0;
   }
 
@@ -202,7 +212,7 @@ export function syncFreeViewingEntryWithSession(session, entry, lessonData = nul
 
 /**
  * True when free viewing period ended and student must use VVC (paid path).
- * For number_of_days: expires from lastAttendance even if the student never opened the video.
+ * For number_of_days: expires from the student's first video open.
  */
 export function isFreeViewingExpired(session, studentEntry, lessonData = null) {
   if (!needsViewingSettings(session?.payment_state)) return false;
@@ -211,9 +221,8 @@ export function isFreeViewingExpired(session, studentEntry, lessonData = null) {
   if (!Number.isNaN(limit) && limit <= 0) return true;
 
   if (session?.viewing_limit_type === 'number_of_days') {
-    // Only "expired" if they had a center attendance window that has ended
-    if (!attendedInCenter(lessonData)) return false;
-    if (!parseLastAttendanceYmd(lessonData)) return false;
+    const startedAt = studentEntry?.first_opened_at || studentEntry?.first_viewed_at;
+    if (!startedAt) return false;
     return !isFreeViewingAccessValid(session, studentEntry, lessonData);
   }
 
