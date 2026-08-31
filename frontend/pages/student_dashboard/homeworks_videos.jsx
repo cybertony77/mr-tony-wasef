@@ -464,7 +464,7 @@ export default function HomeworksVideos() {
     }
   }, [studentId, queryClient]);
 
-  const postWatchAttendance = useCallback(async (currentVideo) => {
+  const postWatchAttendance = useCallback(async (currentVideo, watchedPercent = 10) => {
     if (attendancePostedRef.current) return;
     if (!currentVideo || !profile?.id || !currentVideo._id) return;
     attendancePostedRef.current = true;
@@ -477,7 +477,8 @@ export default function HomeworksVideos() {
         session_id: sessionId,
         action: 'finish',
         payment_state: currentVideo.payment_state,
-        lesson: currentVideo.lesson
+        lesson: currentVideo.lesson,
+        watched_percent: watchedPercent,
       });
     } catch (err) {
       attendancePostedRef.current = false;
@@ -485,10 +486,13 @@ export default function HomeworksVideos() {
     }
   }, [profile?.id]);
 
-  const handleWatchTenPercentHomework = useCallback(async () => {
+  const handleWatchTenPercentHomework = useCallback(async (...args) => {
+    const watchedPercent =
+      typeof args[0] === 'number' ? args[0] :
+        typeof args[1] === 'number' ? args[1] : 10;
     watchedTenPercentRef.current = true;
     await tryDecrementVhcViewsOnWatchProgress();
-    await postWatchAttendance(selectedVideoRef.current);
+    await postWatchAttendance(selectedVideoRef.current, watchedPercent);
   }, [tryDecrementVhcViewsOnWatchProgress, postWatchAttendance]);
 
   const handleR2VideoCompleteHomework = useCallback(() => {

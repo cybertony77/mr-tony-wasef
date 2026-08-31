@@ -208,11 +208,17 @@ export default function YoutubePlayerCore({
     const checkProgress = (player) => {
       if (thresholdDoneRef.current || destroyed) return;
       try {
+        if (player.getPlayerState?.() !== YT_PLAYING) return;
         const dur = player.getDuration();
         const cur = player.getCurrentTime();
-        if (dur > 0 && cur / dur >= thresholdFraction) {
+        const configuredThreshold = Number(thresholdFraction);
+        const effectiveThreshold = Number.isFinite(configuredThreshold)
+          ? Math.min(1, Math.max(0.1, configuredThreshold))
+          : 0.1;
+        const watchedPercent = dur > 0 ? Math.min(100, Math.max(0, (cur / dur) * 100)) : 0;
+        if (dur > 0 && watchedPercent >= effectiveThreshold * 100) {
           thresholdDoneRef.current = true;
-          cbRef.current?.();
+          cbRef.current?.(watchedPercent);
           if (notifyParent && typeof window !== "undefined" && window.parent && window.parent !== window) {
             try {
               window.parent.postMessage(
@@ -220,6 +226,7 @@ export default function YoutubePlayerCore({
                   source: "yt-safe-player",
                   type: "threshold",
                   videoId: youtubeVideoId,
+                  watchedPercent,
                 },
                 window.location.origin
               );

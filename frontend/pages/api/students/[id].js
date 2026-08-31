@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { getCookieValue } from '../../../lib/cookies';
 import { authMiddleware, isAuthError } from "../../../lib/authMiddleware";
+import { getHomeworkVideoLessonsForStudent } from '../../../lib/homeworkVideoLessons';
 
 // Load environment variables from env.config
 function loadEnvConfig() {
@@ -91,6 +92,15 @@ export default async function handler(req, res) {
         { projection: { email: 1 } }
       );
       const studentEmail = (userAccount?.email && String(userAccount.email).trim()) || null;
+      const homeworkVideoSessions = await db.collection('homeworks_videos')
+        .find({})
+        .project({ lesson: 1, course: 1, courseType: 1, state: 1, account_state: 1 })
+        .toArray();
+      const homeworkVideoLessons = getHomeworkVideoLessonsForStudent(
+        homeworkVideoSessions,
+        student,
+        NATIONAL_SYSTEM
+      );
 
       res.json({
         id: student.id,
@@ -121,6 +131,7 @@ export default async function handler(req, res) {
         payment: student.payment || null, // Include payment data
         online_sessions: student.online_sessions || [], // Include online_sessions for VVC restore
         homeworks_videos: student.homeworks_videos || [], // Include homeworks_videos for VHC restore
+        homework_video_lessons: homeworkVideoLessons,
         online_homeworks: student.online_homeworks || [], // Include online_homeworks for degree lookup
         online_quizzes: student.online_quizzes || [], // Include online_quizzes for degree lookup
         online_mock_exams: student.online_mock_exams || [], // Include online_mock_exams for degree lookup

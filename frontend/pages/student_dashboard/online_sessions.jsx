@@ -565,15 +565,9 @@ export default function OnlineSessions() {
     }
   }, [studentId, queryClient]);
 
-  const postWatchAttendance = useCallback(async (currentVideo) => {
+  const postWatchAttendance = useCallback(async (currentVideo, watchedPercent = 10) => {
     if (attendancePostedRef.current) return;
     if (!currentVideo || !profile?.id || !currentVideo._id) return;
-
-    // Free / free-if-attended-in-center: only views/days — never overwrite DB attendance
-    if (FREE_ONLINE_SESSION_PAYMENT_STATES.includes(currentVideo.payment_state)) {
-      attendancePostedRef.current = true;
-      return;
-    }
 
     attendancePostedRef.current = true;
     try {
@@ -584,10 +578,13 @@ export default function OnlineSessions() {
       await apiClient.post(`/api/students/${profile.id}/watch-video`, {
         session_id: sessionId,
         action: 'finish',
-        payment_state: currentVideo.payment_state
+        payment_state: currentVideo.payment_state,
+        watched_percent: watchedPercent,
       });
 
-      if (isScoringEnabled) {
+      // Keep scoring limited to paid sessions; attendance itself is recorded
+      // for every payment state after the 10% milestone.
+      if (isScoringEnabled && currentVideo.payment_state === 'paid') {
         try {
           const sessionLesson = currentVideo.lesson || null;
           let alreadyScored = false;
@@ -711,11 +708,14 @@ export default function OnlineSessions() {
     }
   }, [profile?.id, studentId, queryClient, applyFreeViewingEntryToCache]);
 
-  const handleWatchTenPercent = useCallback(async () => {
+  const handleWatchTenPercent = useCallback(async (...args) => {
+    const watchedPercent =
+      typeof args[0] === 'number' ? args[0] :
+        typeof args[1] === 'number' ? args[1] : 10;
     watchedTenPercentRef.current = true;
     await tryDecrementVvcViewsOnWatchProgress();
     await tryDecrementFreeViewsOnWatchProgress();
-    await postWatchAttendance(selectedVideoRef.current);
+    await postWatchAttendance(selectedVideoRef.current, watchedPercent);
   }, [tryDecrementVvcViewsOnWatchProgress, tryDecrementFreeViewsOnWatchProgress, postWatchAttendance]);
 
   // Handle R2 video completion (>= 90% watched)

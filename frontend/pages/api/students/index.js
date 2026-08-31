@@ -6,7 +6,15 @@ import { authMiddleware } from '../../../lib/authMiddleware';
 // Load environment variables from env.config
 function loadEnvConfig() {
   try {
-    const envPath = path.join(process.cwd(), '..', 'env.config');
+    const envCandidates = [
+      path.join(process.cwd(), '..', 'env.config'),
+      path.join(process.cwd(), 'env.config'),
+    ];
+    const envPath = envCandidates.find((candidate) => fs.existsSync(candidate));
+    if (!envPath) {
+      console.log('⚠️  Could not find env.config in expected locations');
+      return {};
+    }
     console.log('📂 Attempting to read env.config from:', envPath);
     console.log('📂 Current working directory:', process.cwd());
     
@@ -47,7 +55,8 @@ const JWT_SECRET = envConfig.JWT_SECRET || process.env.JWT_SECRET || 'demo_secre
 const MONGO_URI = envConfig.MONGO_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/demo-attendance-system';
 const DB_NAME = envConfig.DB_NAME || process.env.DB_NAME || 'demo-attendance-system';
 const SYSTEM_SCORING_SYSTEM = envConfig.SYSTEM_SCORING_SYSTEM === 'true' || process.env.SYSTEM_SCORING_SYSTEM === 'true';
-const WITH_PHISICAL_CARD = envConfig.WITH_PHISICAL_CARD === 'true';
+const WITH_PHISICAL_CARD =
+  envConfig.WITH_PHISICAL_CARD === 'true' || process.env.WITH_PHISICAL_CARD === 'true';
 const NATIONAL_SYSTEM = envConfig.NATIONAL_SYSTEM === 'true' || process.env.NATIONAL_SYSTEM === 'true';
 
 console.log('🔗 Final MONGO_URI being used:', MONGO_URI.replace(/:[^:@]*@/, ':****@'));

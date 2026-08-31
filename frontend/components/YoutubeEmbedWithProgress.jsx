@@ -52,7 +52,8 @@ export default function YoutubeEmbedWithProgress({
       if (!data || data.source !== "yt-safe-player") return;
       if (data.videoId !== safeId) return;
       if (data.type === "threshold") {
-        cbRef.current?.();
+        const watchedPercent = Number(data.watchedPercent);
+        cbRef.current?.(Number.isFinite(watchedPercent) ? watchedPercent : 10);
       }
     };
 

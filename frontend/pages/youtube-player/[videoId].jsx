@@ -46,7 +46,7 @@ export default function YoutubePlayerEmbedPage() {
   const tfRaw = firstQuery(router.query?.tf) || parseSearchParam(router.asPath, "tf");
   const tfNum = Number(tfRaw);
   const thresholdFraction =
-    Number.isFinite(tfNum) && tfNum > 0 && tfNum <= 1 ? tfNum : 0.1;
+    Number.isFinite(tfNum) && tfNum >= 0.1 && tfNum <= 1 ? tfNum : 0.1;
 
   const watermarkText =
     firstQuery(router.query?.wm) || parseSearchParam(router.asPath, "wm") || undefined;

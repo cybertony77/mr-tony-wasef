@@ -2,6 +2,7 @@ import { MongoClient } from 'mongodb';
 import { verifySignature } from '../../../../lib/hmac';
 import fs from 'fs';
 import path from 'path';
+import { getHomeworkVideoLessonsForStudent } from '../../../../lib/homeworkVideoLessons';
 
 // Load environment variables from env.config
 function loadEnvConfig() {
@@ -57,6 +58,7 @@ function loadEnvConfig() {
 const envConfig = loadEnvConfig();
 const MONGO_URI = envConfig.MONGO_URI || process.env.MONGO_URI;
 const DB_NAME = envConfig.DB_NAME || process.env.DB_NAME;
+const NATIONAL_SYSTEM = envConfig.NATIONAL_SYSTEM === 'true' || process.env.NATIONAL_SYSTEM === 'true';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -101,9 +103,22 @@ export default async function handler(req, res) {
     }
 
     console.log('✅ Public API: Student found:', { id: student.id, name: student.name });
-    
+
+    const homeworkVideoSessions = await db.collection('homeworks_videos')
+      .find({})
+      .project({ lesson: 1, course: 1, courseType: 1, state: 1, account_state: 1 })
+      .toArray();
+    const homeworkVideoLessons = getHomeworkVideoLessonsForStudent(
+      homeworkVideoSessions,
+      student,
+      NATIONAL_SYSTEM
+    );
+
     client.close();
-    return res.status(200).json(student);
+    return res.status(200).json({
+      ...student,
+      homework_video_lessons: homeworkVideoLessons,
+    });
   } catch (error) {
     console.error('❌ Public API: Database error:', error);
     if (client) {

@@ -13,7 +13,9 @@ import { Center, Group, Paper, RingProgress, SimpleGrid, Text } from '@mantine/c
 import { useRouter } from 'next/router';
 import { useStudents } from '../../lib/api/students';
 import { useSystemConfig, useNationalSystem, getCourseFieldLabels } from '../../lib/api/system';
+import { getStudentLesson } from '../../lib/studentLessons';
 import LoadingSkeleton from '../../components/LoadingSkeleton';
+import FullPageActionLoader from '../../components/FullPageActionLoader';
 
 export default function SessionInfo() {
   const { data: systemConfig } = useSystemConfig();
@@ -36,6 +38,15 @@ export default function SessionInfo() {
   const [showMainComment, setShowMainComment] = useState(false);
   const [showLessonComment, setShowLessonComment] = useState(false);
   const [openDropdown, setOpenDropdown] = useState(null); // 'course', 'courseType', 'center', 'lesson', or null
+  const [isSavingAbsences, setIsSavingAbsences] = useState(false);
+  const [absenceSaveMessage, setAbsenceSaveMessage] = useState('');
+  const [absenceSaveError, setAbsenceSaveError] = useState('');
+
+  useEffect(() => {
+    if (!absenceSaveMessage) return undefined;
+    const timeoutId = window.setTimeout(() => setAbsenceSaveMessage(''), 6000);
+    return () => window.clearTimeout(timeoutId);
+  }, [absenceSaveMessage]);
   
   // Pagination state for each table
   const [attendedPage, setAttendedPage] = useState(1);
@@ -426,6 +437,51 @@ export default function SessionInfo() {
     });
   }
 
+  const absenceStudentIds = useMemo(() => {
+    if (!selectedLesson) return [];
+    return notAttendedStudents
+      .filter((student) => {
+        const lessonData = getStudentLesson(student.lessons, selectedLesson);
+        return lessonData?.attended !== false;
+      })
+      .map((student) => student.id);
+  }, [notAttendedStudents, selectedLesson]);
+
+  const handleSaveAbsences = async () => {
+    if (!selectedLesson || isSavingAbsences) return;
+
+    setAbsenceSaveMessage('');
+    setAbsenceSaveError('');
+    if (absenceStudentIds.length === 0) {
+      setAbsenceSaveMessage('✅ All students in this table are already marked absent.');
+      return;
+    }
+
+    setIsSavingAbsences(true);
+    try {
+      const response = await apiClient.post('/api/students/bulk-absence', {
+        ids: absenceStudentIds,
+        attendanceLesson: selectedLesson,
+      });
+      const result = response.data || {};
+      const skippedCount = Array.isArray(result.skippedAlreadyAbsent)
+        ? result.skippedAlreadyAbsent.length
+        : 0;
+      setAbsenceSaveMessage(
+        `✅ Successfully marked ${result.updatedCount || 0} student${result.updatedCount === 1 ? '' : 's'} absent for ${selectedLesson}.` +
+        (skippedCount > 0 ? ` ${skippedCount} already absent student${skippedCount === 1 ? '' : 's'} were skipped.` : '')
+      );
+      await refetch();
+    } catch (saveError) {
+      console.error('Failed to save bulk absences:', saveError);
+      setAbsenceSaveError(
+        `❌ ${saveError.response?.data?.error || 'Unable to save absences. Please try again.'}`
+      );
+    } finally {
+      setIsSavingAbsences(false);
+    }
+  };
+
   // AIAC: Attended in Another Center - students who attended in a different center than their main center
   const aiacStudents = (allFiltersSelected ? (filtered !== null ? filtered : students) : []).filter(s => {
     if (!primaryFiltersReady) return false;
@@ -777,6 +833,101 @@ export default function SessionInfo() {
             }
             .circle-text {
               font-size: 1rem;
+            }
+          }
+
+          .absence-table-header {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 12px;
+            width: 100%;
+          }
+          .absence-table-title {
+            flex: 0 1 auto;
+            min-width: 0;
+            font-weight: 600;
+            color: #000;
+            line-height: 1.45;
+            overflow-wrap: anywhere;
+            text-align: center;
+          }
+          .absence-save-action {
+            display: flex;
+            justify-content: center;
+            width: 100%;
+            margin-top: 16px;
+          }
+          .save-absence-btn {
+            flex: 1 1 auto;
+            width: 100%;
+            min-height: 42px;
+            min-width: 0;
+            padding: 10px 18px;
+            border: 0;
+            border-radius: 12px;
+            background: linear-gradient(135deg, #1FA8DC 0%, #1688b5 58%, #157aa4 100%);
+            color: #fff;
+            font-size: 0.9rem;
+            font-weight: 700;
+            letter-spacing: 0.01em;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            box-shadow: 0 7px 16px rgba(31, 168, 220, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+            transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease, filter 0.2s ease;
+          }
+          .save-absence-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            filter: saturate(1.08);
+            box-shadow: 0 10px 20px rgba(31, 168, 220, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+          }
+          .save-absence-btn:active:not(:disabled) {
+            transform: translateY(0);
+            box-shadow: 0 4px 10px rgba(31, 168, 220, 0.25);
+          }
+          .save-absence-btn:focus-visible {
+            outline: 3px solid rgba(31, 168, 220, 0.28);
+            outline-offset: 3px;
+          }
+          .save-absence-btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.55;
+            box-shadow: none;
+          }
+          .absence-save-message,
+          .absence-save-error {
+            margin: 16px 0 0;
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            text-align: center;
+          }
+          .absence-save-message {
+            color: #176b39;
+            background: #eaf8ef;
+            border: 1px solid #b8e6c7;
+          }
+          .absence-save-error {
+            color: #a61b29;
+            background: #fff0f1;
+            border: 1px solid #f2b8bd;
+          }
+          @media (max-width: 768px) {
+            .absence-table-header {
+              flex-direction: column;
+              gap: 10px;
+            }
+            .save-absence-btn {
+              width: 100%;
+              min-width: 0;
+            }
+            .absence-save-action {
+              margin-top: 14px;
             }
           }
 
@@ -1179,8 +1330,10 @@ export default function SessionInfo() {
         
         {/* Second table: Not attended, grade and main_center match selection */}
         <div className="table-container" style={{ margin: '24px 0', background: '#fff', borderRadius: 12, padding: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.07)' }}>
-          <div style={{ fontWeight: 600, marginBottom: 12, textAlign: 'center', color: '#000' }}>
-          {selectedLesson ? `Absences Students in ${selectedLesson} (${notAttendedStudents.length} records)` : `Absences Students (${notAttendedStudents.length} records)`}
+          <div className="absence-table-header">
+            <div className="absence-table-title">
+              {selectedLesson ? `Absences Students in ${selectedLesson} (${notAttendedStudents.length} records)` : `Absences Students (${notAttendedStudents.length} records)`}
+            </div>
           </div>
           <SessionTable
             data={paginatedAbsencesStudents}
@@ -1259,7 +1412,26 @@ export default function SessionInfo() {
               </button>
             </div>
           )}
+          {notAttendedStudents.length > 0 && (
+            <div className="absence-save-action">
+              <button
+                type="button"
+                className="save-absence-btn"
+                onClick={handleSaveAbsences}
+                disabled={!selectedLesson || isSavingAbsences || absenceStudentIds.length === 0}
+              >
+                {isSavingAbsences ? 'Saving Absences...' : `Save Absences Students${absenceStudentIds.length ? ` (${absenceStudentIds.length})` : ''}`}
+              </button>
+            </div>
+          )}
+          {absenceSaveMessage && <div className="absence-save-message" role="status">{absenceSaveMessage}</div>}
+          {absenceSaveError && <div className="absence-save-error" role="alert">{absenceSaveError}</div>}
         </div>
+        <FullPageActionLoader
+          active={isSavingAbsences}
+          label="Saving absences"
+          sub="Please wait while all students are updated."
+        />
         
         {/* AIAC: Attended in Another Center Table */}
         <div className="table-container" style={{ margin: '24px 0', background: '#fff', borderRadius: 12, padding: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.07)' }}>

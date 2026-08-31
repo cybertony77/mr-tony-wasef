@@ -3,7 +3,6 @@ import fs from 'fs';
 import path from 'path';
 import { authMiddleware } from '../../../../lib/authMiddleware';
 import { mergeStudentLesson } from '../../../../lib/studentLessons';
-import { formatEgyptAttendance } from '../../../../lib/egyptDateTime';
 
 function loadEnvConfig() {
   try {
@@ -34,15 +33,6 @@ function loadEnvConfig() {
 const envConfig = loadEnvConfig();
 const MONGO_URI = envConfig.MONGO_URI || process.env.MONGO_URI;
 const DB_NAME = envConfig.DB_NAME || process.env.DB_NAME;
-
-// Format date as DD/MM/YYYY
-function formatDate(date) {
-  const day = String(date.getDate()).padStart(2, '0');
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const year = date.getFullYear();
-  
-  return `${day}/${month}/${year}`;
-}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -85,7 +75,7 @@ export default async function handler(req, res) {
       });
     }
 
-    const { session_id, action, payment_state, lesson } = req.body; // action: 'view' or 'finish', payment_state: video state, lesson: lesson name
+    const { session_id, action, watched_percent } = req.body; // action: 'view' or 'finish'
 
     if (!session_id) {
       return res.status(400).json({ error: 'Session ID is required' });
@@ -106,8 +96,6 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Homework video session not found' });
     }
 
-    const isPaidVideo = (payment_state || session.payment_state) === 'paid';
-
     if (action === 'view') {
       // Just record that video was opened (no decrement)
       return res.status(200).json({ 
@@ -115,49 +103,32 @@ export default async function handler(req, res) {
         message: 'Video view recorded'
       });
     } else if (action === 'finish') {
-      // Set view_homework_video=true for the lesson and mark attendance
-      const lessonName = lesson || session.lesson;
-      if (lessonName && lessonName.trim()) {
-        const attendanceDate = formatDate(new Date());
-        const attendanceString = formatEgyptAttendance(new Date(), 'Online');
+      const watchedPercentNumber = Number(watched_percent);
+      if (!Number.isFinite(watchedPercentNumber) || watchedPercentNumber < 10) {
+        return res.status(400).json({
+          error: 'At least 10% of the video must be watched before the homework video is marked as viewed',
+          required_percent: 10,
+          watched_percent: Number.isFinite(watchedPercentNumber) ? watchedPercentNumber : 0,
+        });
+      }
 
+      // Set view_homework_video=true after the 10% milestone.
+      const lessonName = session.lesson;
+      if (lessonName && lessonName.trim()) {
         const lessonPatch = {
           view_homework_video: true,
-          attended: true,
-          lastAttendance: attendanceString,
-          lastAttendanceCenter: 'Online',
-          attendanceDate: attendanceDate,
-          ...(isPaidVideo ? { paid: true } : {}),
         };
         const nextLessons = mergeStudentLesson(student.lessons, lessonName, lessonPatch);
         await db.collection('students').updateOne(
           { id: student_id },
           { $set: { lessons: nextLessons } }
         );
-
-        // Create history record when attendance is marked
-        const existingHistory = await db.collection('history').findOne({
-          studentId: student_id,
-          lesson: lessonName
-        });
-
-        if (!existingHistory) {
-          const historyRecord = {
-            studentId: student.id,
-            lesson: lessonName
-          };
-          
-          console.log('📝 Creating history record for homework video attendance:', historyRecord);
-          await db.collection('history').insertOne(historyRecord);
-          console.log('✅ History record created');
-        } else {
-          console.log('ℹ️ History record already exists for student', student_id, 'lesson', lessonName);
-        }
       }
 
       return res.status(200).json({ 
         success: true,
-        message: 'Homework video marked as viewed'
+        message: 'Homework video marked as viewed',
+        view_homework_video: true
       });
     } else {
       return res.status(400).json({ error: 'Invalid action. Use "view" or "finish"' });

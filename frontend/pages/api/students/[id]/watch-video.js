@@ -94,7 +94,7 @@ export default async function handler(req, res) {
       });
     }
 
-    const { session_id, action } = req.body; // action: 'view' | 'finish' | 'start_free_access' | 'decrement_free_views'
+    const { session_id, action, watched_percent } = req.body; // action: 'view' | 'finish' | 'start_free_access' | 'decrement_free_views'
 
     if (!session_id) {
       return res.status(400).json({ error: 'Session ID is required' });
@@ -335,19 +335,18 @@ export default async function handler(req, res) {
         message: 'Video view recorded'
       });
     } else if (action === 'finish') {
-      // Free / free-if-attended-in-center: only views/days are tracked (start_free_access /
-      // decrement_free_views). Do NOT overwrite lesson attendance (lastAttendance,
-      // lastAttendanceCenter, etc.) — those stay as recorded in center.
-      if (isFreeLimited) {
-        return res.status(200).json({
-          success: true,
-          message: 'Free viewing video — attendance not modified',
-          skipped_attendance: true,
+      const watchedPercentNumber = Number(watched_percent);
+      if (!Number.isFinite(watchedPercentNumber) || watchedPercentNumber < 10) {
+        return res.status(400).json({
+          error: 'At least 10% of the video must be watched before attendance is recorded',
+          required_percent: 10,
+          watched_percent: Number.isFinite(watchedPercentNumber) ? watchedPercentNumber : 0,
         });
       }
 
-      // Add entry to student's online_sessions array (for paid videos)
-      {
+      // Add an online-session entry only for paid videos. Free access entries are
+      // already tracked by start_free_access/decrement_free_views.
+      if (!isFreeLimited) {
         const onlineSessions = student.online_sessions || [];
         const sessionIdStr = typeof session_id === 'string' ? session_id : session_id.toString();
         
@@ -375,17 +374,25 @@ export default async function handler(req, res) {
         }
       }
 
-      // Mark attendance when paid video finishes
+      // Mark attendance after the 10% milestone for every payment state.
       const lesson = session.lesson;
       if (lesson && lesson.trim()) {
         const attendanceDate = formatDate(new Date());
         const attendanceString = formatEgyptAttendance(new Date(), 'Online');
+        const lessonData = getStudentLesson(student.lessons, lesson);
+        const preserveCenterAttendance =
+          effectivePaymentState === 'free_if_attended_in_center' &&
+          attendedInCenter(lessonData);
 
         const lessonPatch = {
           attended: true,
-          lastAttendance: attendanceString,
-          lastAttendanceCenter: 'Online',
-          attendanceDate: attendanceDate,
+          ...(preserveCenterAttendance
+            ? {}
+            : {
+                lastAttendance: attendanceString,
+                lastAttendanceCenter: 'Online',
+                attendanceDate: attendanceDate,
+              }),
           ...(isPaidVideo ? { paid: true } : {}),
         };
         const nextLessons = mergeStudentLesson(student.lessons, lesson, lessonPatch);
@@ -418,7 +425,7 @@ export default async function handler(req, res) {
           }
 
           // === SCORING SYSTEM: Apply attendance scoring (status: 'attend') ===
-          if (SCORING_SYSTEM_ENABLED) {
+          if (SCORING_SYSTEM_ENABLED && isPaidVideo) {
             try {
               // Check if 'attend' scoring was already applied for this student + lesson
               const existingScoringHistory = await db.collection('scoring_system_history').findOne({

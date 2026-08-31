@@ -19,6 +19,7 @@ export default function MyInfo() {
   const isScoringEnabled = systemConfig?.scoring_system === true || systemConfig?.scoring_system === 'true';
   const isPaymentSystemEnabled = systemConfig?.payment_system === true || systemConfig?.payment_system === 'true';
   const isMockExamsEnabled = systemConfig?.mock_exams === true || systemConfig?.mock_exams === 'true';
+  const isHomeworksVideosEnabled = systemConfig?.homeworks_videos === true || systemConfig?.homeworks_videos === 'true';
   
   const containerRef = useRef(null);
   const [error, setError] = useState("");
@@ -255,6 +256,14 @@ export default function MyInfo() {
     }
     
     return [];
+  };
+
+  const hasHomeworkVideoForLesson = (lessonName) => {
+    const normalizedLesson = String(lessonName || '').trim().toLowerCase();
+    return Array.isArray(student?.homework_video_lessons) &&
+      student.homework_video_lessons.some(
+        (name) => String(name || '').trim().toLowerCase() === normalizedLesson
+      );
   };
 
   // Helper to compute totals for the student across all lessons
@@ -947,7 +956,9 @@ export default function MyInfo() {
                       <Table.Th style={{ width: '200px', minWidth: '200px', textAlign: 'center' }}>Lesson</Table.Th>
                       <Table.Th style={{ width: '120px', minWidth: '120px', textAlign: 'center' }}>Attendance Info</Table.Th>
                       <Table.Th style={{ width: '120px', minWidth: '120px', textAlign: 'center' }}>Homework</Table.Th>
-                      <Table.Th style={{ width: '140px', minWidth: '140px', textAlign: 'center' }}>Homework Video</Table.Th>
+                      {isHomeworksVideosEnabled && (
+                        <Table.Th style={{ width: '140px', minWidth: '140px', textAlign: 'center' }}>Homework Video</Table.Th>
+                      )}
                       <Table.Th style={{ width: '120px', minWidth: '120px', textAlign: 'center' }}>Quiz Degree</Table.Th>
                       <Table.Th style={{ width: '200px', minWidth: '200px', textAlign: 'center' }}>Parent Comment</Table.Th>
                     </Table.Tr>
@@ -1009,8 +1020,15 @@ export default function MyInfo() {
                               }
                             })()}
                           </Table.Td>
+                          {isHomeworksVideosEnabled && (
                           <Table.Td style={{ width: '140px', minWidth: '140px', textAlign: 'center' }}>
-                            {lessonData.view_homework_video === true ? (
+                            {!hasHomeworkVideoForLesson(lessonName) ? (
+                              <span style={{
+                                color: '#6c757d',
+                                fontWeight: 'bold',
+                                fontSize: '1rem'
+                              }}>🚫 No Homework Video</span>
+                            ) : lessonData.view_homework_video === true ? (
                               <span style={{ 
                                 color: '#28a745',
                                 fontWeight: 'bold',
@@ -1024,6 +1042,7 @@ export default function MyInfo() {
                               }}>❌ Not Viewed</span>
                             )}
                           </Table.Td>
+                          )}
                           <Table.Td style={{ width: '120px', minWidth: '120px', textAlign: 'center' }}>
                             {(() => {
                               const value = lessonData.quizDegree !== null && lessonData.quizDegree !== undefined && lessonData.quizDegree !== '' ? lessonData.quizDegree : 'No Quiz';
