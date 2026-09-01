@@ -633,7 +633,7 @@ export default function SessionInfo() {
 
   return (
     <div style={{ minHeight: '100vh', padding: '20px 5px 20px 5px' }}>
-              <div ref={containerRef} style={{ maxWidth: 600, margin: '20px auto', padding: 24 }}>
+              <div ref={containerRef} style={{ maxWidth: 1000, margin: '20px auto', padding: 24 }}>
         <style jsx>{`
           .title {
             font-size: 2rem;
@@ -1259,7 +1259,9 @@ export default function SessionInfo() {
             showMainComment={showComment || showMainComment}
             showWeekComment={showComment || showLessonComment}
             height={300}
-            showWhatsApp={true}
+            showStudentWhatsApp={!isNational}
+            showParentWhatsApp={true}
+            showMessageState={!isNational}
             showEmail={false}
             showCourse={true}
             showCourseType={true}
@@ -1343,7 +1345,9 @@ export default function SessionInfo() {
             showComment={false}
             showMainComment={true}
             showWeekComment={true}
-            showWhatsApp={true}
+            showStudentWhatsApp={!isNational}
+            showParentWhatsApp={true}
+            showMessageState={!isNational}
             showEmail={false}
             showCourse={true}
             showCourseType={true}
@@ -1446,9 +1450,10 @@ export default function SessionInfo() {
             showComment={false}
             showMainComment={true}
             showWeekComment={true}
-            showWhatsApp={true}
+            showStudentWhatsApp={!isNational}
+            showParentWhatsApp={true}
             showEmail={false}
-            showMessageState={true}
+            showMessageState={!isNational}
             showStatsColumns={true}
             showCourse={true}
             showCourseType={true}

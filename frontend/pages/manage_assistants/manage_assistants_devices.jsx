@@ -251,7 +251,7 @@ export default function ManageAssistantsDevices() {
 
   return (
     <div className="page-wrapper" style={{ padding: "20px 5px 20px 5px" }}>
-      <div className="main-container" style={{ maxWidth: 800, margin: "auto", padding: "20px 5px" }}>
+      <div className="main-container" style={{ maxWidth: 1000, margin: "auto", padding: "20px 5px" }}>
         <style jsx>{`
           .page-wrapper {
             padding: 20px 5px 20px 5px;
@@ -292,7 +292,7 @@ export default function ManageAssistantsDevices() {
           }
           .table {
             width: 100%;
-            min-width: 800px;
+            min-width: 1000px;
             border-collapse: collapse;
             table-layout: fixed;
           }

@@ -22,7 +22,7 @@ function loadEnvConfig() {
     console.log('✅ Successfully read env.config file');
     const envVars = {};
     
-    envContent.split('\n').forEach(line => {
+    envContent.split(/\r?\n/).forEach(line => {
       const trimmed = line.trim();
       if (trimmed && !trimmed.startsWith('#')) {
         const index = trimmed.indexOf('=');
@@ -55,9 +55,30 @@ const JWT_SECRET = envConfig.JWT_SECRET || process.env.JWT_SECRET || 'demo_secre
 const MONGO_URI = envConfig.MONGO_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/demo-attendance-system';
 const DB_NAME = envConfig.DB_NAME || process.env.DB_NAME || 'demo-attendance-system';
 const SYSTEM_SCORING_SYSTEM = envConfig.SYSTEM_SCORING_SYSTEM === 'true' || process.env.SYSTEM_SCORING_SYSTEM === 'true';
-const WITH_PHISICAL_CARD =
-  envConfig.WITH_PHISICAL_CARD === 'true' || process.env.WITH_PHISICAL_CARD === 'true';
-const NATIONAL_SYSTEM = envConfig.NATIONAL_SYSTEM === 'true' || process.env.NATIONAL_SYSTEM === 'true';
+
+function parseEnvBoolean(raw, defaultValue = false) {
+  if (raw === undefined || raw === null || String(raw).trim() === '') {
+    return defaultValue;
+  }
+  return String(raw).trim().toLowerCase() === 'true';
+}
+
+function readEnvFlag(key, defaultValue = false) {
+  try {
+    const latestEnv = loadEnvConfig();
+    return parseEnvBoolean(latestEnv[key], defaultValue);
+  } catch {
+    return defaultValue;
+  }
+}
+
+function isWithPhysicalCardEnabled() {
+  return readEnvFlag('WITH_PHISICAL_CARD', false);
+}
+
+function isNationalSystemEnabled() {
+  return readEnvFlag('NATIONAL_SYSTEM', false);
+}
 
 console.log('🔗 Final MONGO_URI being used:', MONGO_URI.replace(/:[^:@]*@/, ':****@'));
 console.log('🔗 Final DB_NAME being used:', DB_NAME);
@@ -68,6 +89,28 @@ function escapeRegExp(value) {
 
 function exactMatchRegex(value) {
   return new RegExp(`^${escapeRegExp(value)}$`, 'i');
+}
+
+function hasRequiredText(value) {
+  return value !== undefined && value !== null && String(value).trim() !== '';
+}
+
+function getCreateStudentValidationError(body) {
+  const nationalSystem = isNationalSystemEnabled();
+  const { name, grade, course, phone, parents_phone, main_center, gender, school } = body || {};
+  const missing = [];
+
+  if (!hasRequiredText(name)) missing.push('name');
+  if (!hasRequiredText(course)) missing.push(nationalSystem ? 'grade' : 'course');
+  if (!hasRequiredText(phone)) missing.push('phone');
+  if (!hasRequiredText(parents_phone)) missing.push('parents_phone');
+  if (!hasRequiredText(main_center)) missing.push('main_center');
+  if (!hasRequiredText(gender)) missing.push('gender');
+  if (nationalSystem && !hasRequiredText(school)) missing.push('school');
+  if (!nationalSystem && !hasRequiredText(grade)) missing.push('grade');
+
+  if (missing.length === 0) return null;
+  return `Missing required fields: ${missing.join(', ')}`;
 }
 
 // Auth middleware is now imported from shared utility
@@ -499,27 +542,22 @@ export default async function handler(req, res) {
       }
     } else if (req.method === 'POST') {
       // Add new student
+      const withPhysicalCard = isWithPhysicalCardEnabled();
+      const nationalSystem = isNationalSystemEnabled();
       const { id, name, grade, course, courseType, phone, parents_phone, main_center, age, gender, school, main_comment, comment, account_state, score, payment, online_sessions, online_homeworks, online_quizzes, online_mock_exams, mockExams } = req.body;
       
       let newId;
       
-      if (WITH_PHISICAL_CARD) {
+      if (withPhysicalCard) {
         // If WITH_PHISICAL_CARD is true, require and validate the custom ID
         // Check if id is provided and is a valid number
         if (!id || id === '' || isNaN(parseInt(id))) {
           return res.status(400).json({ error: 'Student ID is required when WITH_PHISICAL_CARD is enabled' });
         }
-        
-        const missingCore =
-          !name || !course || !phone || !parents_phone || !main_center || age === undefined || !gender ||
-          (NATIONAL_SYSTEM && !school);
-        const missingGrade = !NATIONAL_SYSTEM && !grade;
-        if (missingCore || missingGrade) {
-          return res.status(400).json({
-            error: NATIONAL_SYSTEM
-              ? 'All fields are required (name, course/grade, phone, parents_phone, main_center, age, gender, school)'
-              : 'All fields are required (name, grade, course, phone, parents_phone, main_center, age, gender)',
-          });
+
+        const validationError = getCreateStudentValidationError(req.body);
+        if (validationError) {
+          return res.status(400).json({ error: validationError });
         }
         
         // Check if the custom ID is already used
@@ -532,12 +570,9 @@ export default async function handler(req, res) {
       } else {
         // If WITH_PHISICAL_CARD is false, auto-generate ID (last student ID + 1)
         // Ignore id field completely - don't validate it even if it's sent
-        const missingCore =
-          !name || !course || !phone || !parents_phone || !main_center || age === undefined || !gender ||
-          (NATIONAL_SYSTEM && !school);
-        const missingGrade = !NATIONAL_SYSTEM && !grade;
-        if (missingCore || missingGrade) {
-          return res.status(400).json({ error: 'All fields are required' });
+        const validationError = getCreateStudentValidationError(req.body);
+        if (validationError) {
+          return res.status(400).json({ error: validationError });
         }
         
         // Find the highest student ID
@@ -581,7 +616,11 @@ export default async function handler(req, res) {
       if (!normalizedPhone || normalizedPhone.length < 8) {
         return res.status(400).json({ error: 'Please enter a valid student phone number' });
       }
-      if (NATIONAL_SYSTEM) {
+      const normalizedParentPhone = normalizePhone(parents_phone);
+      if (!normalizedParentPhone || normalizedParentPhone.length < 8) {
+        return res.status(400).json({ error: 'Please enter a valid parent phone number' });
+      }
+      if (nationalSystem) {
         const phoneTaken = await db.collection('students').findOne({
           phone: { $in: phoneVariants(normalizedPhone) },
         });
@@ -627,10 +666,10 @@ export default async function handler(req, res) {
         gender,
         grade: grade || null, // GradeSelect field; not required when NATIONAL_SYSTEM
         course: course || null, // Course/Grade from CourseSelect (EST, SAT, ACT, etc.)
-        courseType: NATIONAL_SYSTEM ? null : (courseType || "basics"),
+        courseType: nationalSystem ? null : (courseType || "basics"),
         school: school && String(school).trim() ? String(school).trim() : null,
         phone: normalizedPhone,
-        parentsPhone: parents_phone,
+        parentsPhone: normalizedParentPhone,
         main_center,
         main_comment: (main_comment ?? comment ?? null),
         score: SYSTEM_SCORING_SYSTEM ? (score !== undefined && score !== null ? parseInt(score) : 10) : 0, // Default to 10 if scoring enabled, 0 if disabled

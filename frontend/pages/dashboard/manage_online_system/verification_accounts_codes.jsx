@@ -702,7 +702,7 @@ Best regards
         minHeight: "100vh", 
         padding: "20px 5px 20px 5px"
       }}>
-        <div style={{ maxWidth: 800, margin: "40px auto", padding: "12px" }}>
+        <div style={{ maxWidth: 1000, margin: "40px auto", padding: "12px" }}>
           <Title href="/dashboard/manage_online_system" backText="Back">
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <Image src="/lock-cog.svg" alt="VAC" width={32} height={32} />
@@ -720,7 +720,7 @@ Best regards
       minHeight: "100vh", 
       padding: "20px 5px 20px 5px" 
     }}>
-      <div ref={containerRef} style={{ maxWidth: 800, margin: "40px auto", padding: "20px 5px 20px 5px" }}>
+      <div ref={containerRef} style={{ maxWidth: 1000, margin: "40px auto", padding: "20px 5px 20px 5px" }}>
         <Title href="/dashboard/manage_online_system" backText="Back">
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <Image src="/lock-cog.svg" alt="VAC" width={32} height={32} />
@@ -888,7 +888,7 @@ Best regards
             </div>
           ) : (
             <ScrollArea h={400} type="hover" className={styles.scrolled}>
-              <Table striped highlightOnHover withTableBorder withColumnBorders>
+              <Table striped highlightOnHover withTableBorder withColumnBorders style={{ minWidth: '1000px' }}>
                 <Table.Thead style={{ position: 'sticky', top: 0, backgroundColor: '#f8f9fa'}}>
                   <Table.Tr>
                     <Table.Th style={{ minWidth: '60px', textAlign: 'center' }}>ID</Table.Th>

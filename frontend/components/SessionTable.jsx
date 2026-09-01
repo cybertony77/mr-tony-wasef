@@ -21,6 +21,8 @@ export function SessionTable({
   emptyMessage = "No students found",
   showMainCenter = true,
   showWhatsApp = true,
+  showStudentWhatsApp,
+  showParentWhatsApp,
   showMessageState = true,
   showEmail = true,
   showSchool = false,
@@ -42,6 +44,15 @@ export function SessionTable({
   const courseLabels = getCourseFieldLabels(isNational);
   const effectiveShowCourseType = showCourseType && courseLabels.showCourseType;
   const effectiveShowGrade = showGrade && courseLabels.showGradeField;
+  const resolvedShowStudentWhatsApp = showStudentWhatsApp ?? showWhatsApp;
+  const resolvedShowParentWhatsApp = showParentWhatsApp ?? showWhatsApp;
+  const hasStudentMessaging = resolvedShowStudentWhatsApp && data.length > 0;
+  const hasParentMessaging = resolvedShowParentWhatsApp && data.length > 0;
+  const hasAnyMessaging = hasStudentMessaging || hasParentMessaging;
+  const messageColumnCount =
+    (hasStudentMessaging ? 2 : 0) +
+    (hasParentMessaging ? 2 : 0) +
+    (!hasAnyMessaging && showMessageState ? 1 : 0);
   const { data: profile } = useProfile();
   const senderId = profile?.id || profile?.username || profile?.email || null;
   const { cooldownLeft: waCooldownLeft, cooldownStudentId: waCooldownStudentId, startCooldown: startWaCooldown } = useWaCooldown(senderId, 'session-table');
@@ -377,7 +388,7 @@ export function SessionTable({
           })()}
         </Table.Td>
       )}
-      {showWhatsApp && data.length > 0 ? (
+      {hasStudentMessaging ? (
         <>
           <Table.Td style={{ textAlign: 'center', verticalAlign: 'middle', fontWeight: '500', width: '120px', minWidth: '120px', fontSize: '15px' }}>
             {getMessageState(student, 'student_message_state') ? (
@@ -398,6 +409,10 @@ export function SessionTable({
               onCooldownStart={() => startWaCooldown(`student-${student.id}`)}
             />
           </Table.Td>
+        </>
+      ) : null}
+      {hasParentMessaging ? (
+        <>
           <Table.Td style={{ textAlign: 'center', verticalAlign: 'middle', fontWeight: '500', width: '120px', minWidth: '120px', fontSize: '15px' }}>
             {getMessageState(student, 'message_state') ? (
               <span style={{ color: '#28a745', fontWeight: 'bold', fontSize: '15px' }}>✓ Sent</span>
@@ -418,7 +433,7 @@ export function SessionTable({
             />
           </Table.Td>
         </>
-      ) : showMessageState ? (
+      ) : !hasAnyMessaging && showMessageState ? (
         <Table.Td style={{ textAlign: 'center', verticalAlign: 'middle', fontWeight: '500', width: '120px', minWidth: '120px', fontSize: '15px' }}>
           {getMessageState(student, 'message_state') ? (
             <span style={{ color: '#28a745', fontWeight: 'bold', fontSize: '15px' }}>✓ Sent</span>
@@ -499,8 +514,9 @@ export function SessionTable({
       if (showQuiz) baseWidth += 100;
       if (showComment || showMainComment) baseWidth += 160; // Main Comment
       if (showComment || showWeekComment) baseWidth += 160; // Week Comment
-      if (showWhatsApp && data.length > 0) baseWidth += 320; // Student state/message + parent state/message
-      else if (showMessageState) baseWidth += 80; // Message State column
+      if (hasStudentMessaging) baseWidth += 240;
+      if (hasParentMessaging) baseWidth += 240;
+      if (!hasAnyMessaging && showMessageState) baseWidth += 80;
       if (showPayment) baseWidth += 140; // Available Sessions column
       if (showScore) baseWidth += 80; // Score column
       baseWidth += 500; // Statistics columns (140 + 160 + 200)
@@ -528,8 +544,9 @@ export function SessionTable({
       if (showQuiz) baseWidth += 140; // Quiz Degree
       if (showComment || showMainComment) baseWidth += 160; // Main Comment
       if (showComment || showWeekComment) baseWidth += 160; // Week Comment
-      if (showWhatsApp && data.length > 0) baseWidth += 480; // Student state/message + parent state/message
-      else if (showMessageState) baseWidth += 120; // Message State column
+      if (hasStudentMessaging) baseWidth += 240;
+      if (hasParentMessaging) baseWidth += 240;
+      if (!hasAnyMessaging && showMessageState) baseWidth += 120;
       if (showPayment) baseWidth += 140; // Available Sessions column
       if (showScore) baseWidth += 100; // Score column
       return baseWidth;
@@ -558,15 +575,19 @@ export function SessionTable({
           {showQuiz && <Table.Th style={{ minWidth: data.length === 0 ? '80px' : '140px', width: '140px', textAlign: 'center' }}>Quiz Degree</Table.Th>}
           {(showComment || showMainComment) && <Table.Th style={{ minWidth: data.length === 0 ? '120px' : '160px', width: '160px', textAlign: 'center' }}>Hidden Comment</Table.Th>}
           {(showComment || showWeekComment) && <Table.Th style={{ minWidth: data.length === 0 ? '120px' : '160px', width: '160px', textAlign: 'center' }}>Parent Comment</Table.Th>}
-          {showWhatsApp && data.length > 0 ? (
+          {hasStudentMessaging ? (
             <>
               <Table.Th style={{ minWidth: '120px', width: '120px', textAlign: 'center' }}>Student Message State</Table.Th>
               <Table.Th style={{ minWidth: '120px', width: '120px', textAlign: 'center' }}>Student WhatsApp Message</Table.Th>
+            </>
+          ) : null}
+          {hasParentMessaging ? (
+            <>
               <Table.Th style={{ minWidth: '120px', width: '120px', textAlign: 'center' }}>Parent Message State</Table.Th>
               <Table.Th style={{ minWidth: '120px', width: '120px', textAlign: 'center' }}>Parent WhatsApp Message</Table.Th>
             </>
           ) : (
-            showMessageState && <Table.Th style={{ minWidth: data.length === 0 ? '80px' : '120px', width: '120px', textAlign: 'center' }}>Message State</Table.Th>
+            !hasAnyMessaging && showMessageState && <Table.Th style={{ minWidth: data.length === 0 ? '80px' : '120px', width: '120px', textAlign: 'center' }}>Message State</Table.Th>
           )}
           {showPayment && <Table.Th style={{ minWidth: data.length === 0 ? '100px' : '140px', width: '140px', textAlign: 'center' }}>Available Sessions</Table.Th>}
           {showScore && <Table.Th style={{ minWidth: data.length === 0 ? '80px' : '100px', width: '100px', textAlign: 'center' }}>Score</Table.Th>}
@@ -582,7 +603,7 @@ export function SessionTable({
         {data.length === 0 ? (
           <Table.Tr>
               <Table.Td 
-              colSpan={1 + 1 + (showCourse ? 1 : 0) + (effectiveShowCourseType ? 1 : 0) + (showGender ? 1 : 0) + (effectiveShowGrade ? 1 : 0) + (showSchool ? 1 : 0) + 1 + 1 + (showEmail ? 1 : 0) + (showMainCenter ? 1 : 0) + (showAccountStatus ? 1 : 0) + 3 + (showOppositeTotals ? 3 : 0) + (showHW ? 1 : 0) + (showHomeworkVideo ? 1 : 0) + (showQuiz ? 1 : 0) + (showComment || showMainComment ? 1 : 0) + (showComment || showWeekComment ? 1 : 0) + (showWhatsApp && data.length > 0 ? 4 : (showMessageState ? 1 : 0)) + 1 + (showScore ? 1 : 0)} 
+              colSpan={1 + 1 + (showCourse ? 1 : 0) + (effectiveShowCourseType ? 1 : 0) + (showGender ? 1 : 0) + (effectiveShowGrade ? 1 : 0) + (showSchool ? 1 : 0) + 1 + 1 + (showEmail ? 1 : 0) + (showMainCenter ? 1 : 0) + (showAccountStatus ? 1 : 0) + 3 + (showOppositeTotals ? 3 : 0) + (showHW ? 1 : 0) + (showHomeworkVideo ? 1 : 0) + (showQuiz ? 1 : 0) + (showComment || showMainComment ? 1 : 0) + (showComment || showWeekComment ? 1 : 0) + messageColumnCount + 1 + (showScore ? 1 : 0)} 
               style={{ 
                 border: 'none', 
                 padding: 0,

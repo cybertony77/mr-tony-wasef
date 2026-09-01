@@ -63,7 +63,7 @@ export default function AddStudent() {
   const [idError, setIdError] = useState("");
   const [idChecking, setIdChecking] = useState(false);
   const [idValid, setIdValid] = useState(false);
-  const [withPhysicalCard, setWithPhysicalCard] = useState(true); // Default to true for backward compatibility
+  const [withPhysicalCard, setWithPhysicalCard] = useState(false);
   const [configLoading, setConfigLoading] = useState(true);
   const [systemName, setSystemName] = useState('Mr. Amgad El-Alfy Math Academy');
   const [studentSignupVideo, setStudentSignupVideo] = useState('');
@@ -271,7 +271,7 @@ export default function AddStudent() {
   };
 
   const areRequiredFieldsFilled = () => {
-    if (configLoading) return false;
+    if (configLoading || systemConfigLoading) return false;
     if (withPhysicalCard && !form.id?.trim()) return false;
     if (!form.name?.trim()) return false;
     if (!form.gender?.trim()) return false;
@@ -296,8 +296,13 @@ export default function AddStudent() {
     setError("");
     setSuccess(false);
 
+    if (systemConfigLoading) {
+      setError("Please wait while system settings load");
+      return;
+    }
+
     if (isNational && phoneTaken) {
-      setError("This phone number is already used, please use another one");
+      setError(`This phone number is already used by ID: ${phoneCheck.data?.studentId} , use another one`);
       return;
     }
     if (isNational && phoneReady && (phoneCheck.isLoading || !phoneCheck.data)) {
@@ -370,6 +375,12 @@ export default function AddStudent() {
     if (isNational) {
       payload.grade = null;
       payload.courseType = null;
+    } else {
+      payload.school = payload.school?.trim() ? payload.school.trim() : null;
+    }
+
+    if (!payload.age || String(payload.age).trim() === '') {
+      delete payload.age;
     }
     
     // Course is now separate from grade
@@ -1018,7 +1029,7 @@ Best regards
                   )}
                   {phoneTaken && (
                     <div className="id-feedback taken">
-                      ❌ This phone number is already used, use another one
+                      ❌ This phone number is already used by ID: {phoneCheck.data?.studentId} , use another one
                     </div>
                   )}
                   {phoneAvailable && (

@@ -226,7 +226,7 @@ export default function AllAssistants() {
       }}>
         <div style={{ 
           width: "100%", 
-          maxWidth: "900px",
+          maxWidth: "1000px",
           padding: "0 10px"
         }}>
           <LoadingSkeleton />
@@ -236,7 +236,7 @@ export default function AllAssistants() {
             div[style*="padding: 20px 10px"] {
               padding: 15px 8px !important;
             }
-            div[style*="maxWidth: 900px"] {
+            div[style*="maxWidth: 1000px"] {
               padding: 0 5px !important;
               maxWidth: 100% !important;
             }
@@ -246,7 +246,7 @@ export default function AllAssistants() {
             div[style*="padding: 20px 10px"] {
               padding: 10px 5px !important;
             }
-            div[style*="maxWidth: 900px"] {
+            div[style*="maxWidth: 1000px"] {
               padding: 0 !important;
               maxWidth: 100% !important;
             }
@@ -267,7 +267,7 @@ export default function AllAssistants() {
       minHeight: "100vh", 
       padding: "20px 5px 20px 5px" 
     }}>
-      <div ref={containerRef} style={{ maxWidth: 800, margin: "40px auto", padding: "12px" }}>
+      <div ref={containerRef} style={{ maxWidth: 1000, margin: "40px auto", padding: "12px" }}>
         <Title 
           backText="Back" 
           href="/manage_assistants" 
@@ -331,7 +331,7 @@ export default function AllAssistants() {
             </div>
           ) : (
             <ScrollArea h={400} type="hover" className={styles.scrolled}>
-              <Table striped highlightOnHover withTableBorder withColumnBorders>
+              <Table striped highlightOnHover withTableBorder withColumnBorders style={{ minWidth: '1000px' }}>
                 <Table.Thead style={{ position: 'sticky', top: 0, backgroundColor: '#f8f9fa' }}>
                   <Table.Tr>
                     <Table.Th style={{ width: '10%', textAlign: 'center' }}>Username</Table.Th>

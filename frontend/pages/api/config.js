@@ -1,31 +1,41 @@
 import fs from 'fs';
 import path from 'path';
 
-// Load environment variables from env.config
 function loadEnvConfig() {
   try {
-    const envPath = path.join(process.cwd(), '..', 'env.config');
-    const envContent = fs.readFileSync(envPath, 'utf8');
+    const candidates = [
+      path.join(process.cwd(), '..', 'env.config'),
+      path.join(process.cwd(), 'env.config'),
+    ];
+    const envPath = candidates.find((candidate) => fs.existsSync(candidate));
+    if (!envPath) return {};
+
     const envVars = {};
-    
-    envContent.split('\n').forEach(line => {
-      const trimmed = line.trim();
-      if (trimmed && !trimmed.startsWith('#')) {
+    fs.readFileSync(envPath, 'utf8')
+      .split(/\r?\n/)
+      .forEach((line) => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) return;
         const index = trimmed.indexOf('=');
-        if (index !== -1) {
-          const key = trimmed.substring(0, index).trim();
-          let value = trimmed.substring(index + 1).trim();
-          value = value.replace(/^["']|["']$/g, ''); // strip quotes
-          envVars[key] = value;
-        }
-      }
-    });
-    
+        if (index === -1) return;
+        const key = trimmed.substring(0, index).trim();
+        let value = trimmed.substring(index + 1).trim();
+        value = value.replace(/^["']|["']$/g, '');
+        envVars[key] = value;
+      });
+
     return envVars;
   } catch (error) {
-    console.log('⚠️  Could not read env.config, using process.env as fallback');
+    console.log('⚠️  Could not read env.config, using defaults');
     return {};
   }
+}
+
+function parseEnvBoolean(raw, defaultValue = false) {
+  if (raw === undefined || raw === null || String(raw).trim() === '') {
+    return defaultValue;
+  }
+  return String(raw).trim().toLowerCase() === 'true';
 }
 
 export default async function handler(req, res) {
@@ -35,9 +45,9 @@ export default async function handler(req, res) {
 
   try {
     const envConfig = loadEnvConfig();
-    const withPhysicalCard = envConfig.WITH_PHISICAL_CARD === 'true';
-    const devtoolsBlock = envConfig.DEVTOOLS_BLOCK === 'true';
-    
+    const withPhysicalCard = parseEnvBoolean(envConfig.WITH_PHISICAL_CARD, false);
+    const devtoolsBlock = parseEnvBoolean(envConfig.DEVTOOLS_BLOCK, false);
+
     res.json({
       WITH_PHISICAL_CARD: withPhysicalCard,
       DEVTOOLS_BLOCK: devtoolsBlock,
@@ -46,9 +56,9 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error('❌ Config API error:', error);
-    res.status(500).json({ 
-      error: 'Failed to load configuration', 
-      details: error.message 
+    res.status(500).json({
+      error: 'Failed to load configuration',
+      details: error.message
     });
   }
 }

@@ -329,7 +329,7 @@ export default function EditStudent() {
     setSuccess(false);
 
     if (isNational && phoneTaken) {
-      setError("This phone number is already used by another student");
+      setError(`This phone number is already used by ID: ${phoneCheck.data?.studentId} , use another one`);
       return;
     }
     if (isNational && phoneReady && !phoneUnchanged && (phoneCheck.isLoading || !phoneCheck.data)) {
@@ -939,7 +939,7 @@ export default function EditStudent() {
                     )}
                     {phoneTaken && (
                       <div className="phone-feedback taken">
-                        ❌ This phone number is already used, use another one
+                        ❌ This phone number is already used by ID: {phoneCheck.data?.studentId} , use another one
                       </div>
                     )}
                     {phoneAvailable && (

@@ -303,7 +303,7 @@ export default function History() {
       }}>
         <div style={{ 
           width: "100%", 
-          maxWidth: "800px", 
+          maxWidth: "1000px", 
           margin: "0 auto",
           padding: "0 15px" 
         }}>
@@ -318,7 +318,7 @@ export default function History() {
       minHeight: "100vh", 
       padding: "20px 5px 20px 5px" 
     }}>
-      <div ref={containerRef} style={{ maxWidth: 800, margin: "40px auto", padding: "20px 15px 20px 15px" }}>
+      <div ref={containerRef} style={{ maxWidth: 1000, margin: "40px auto", padding: "20px 15px 20px 15px" }}>
         <div style={{ marginBottom: 20 }}>
           <Title>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

@@ -504,7 +504,7 @@ export default function VerificationVideoCodes() {
         minHeight: "100vh", 
         padding: "20px 5px 20px 5px"
       }}>
-        <div style={{ maxWidth: 800, margin: "40px auto", padding: "12px" }}>
+        <div style={{ maxWidth: 1000, margin: "40px auto", padding: "12px" }}>
           <Title href="/dashboard/manage_online_system" backText="Back">
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <Image src="/lock-cog.svg" alt="VVC" width={32} height={32} />
@@ -522,7 +522,7 @@ export default function VerificationVideoCodes() {
       minHeight: "100vh", 
       padding: "20px 5px 20px 5px" 
     }}>
-      <div ref={containerRef} className="page-content" style={{ maxWidth: 800, margin: "40px auto", padding: "20px 5px 20px 5px" }}>
+      <div ref={containerRef} className="page-content" style={{ maxWidth: 1000, margin: "40px auto", padding: "20px 5px 20px 5px" }}>
           <Title href="/dashboard/manage_online_system" backText="Back">
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <Image src="/lock-cog.svg" alt="VVC" width={32} height={32} />
@@ -702,7 +702,7 @@ export default function VerificationVideoCodes() {
           ) : (
             <ScrollArea h={400} type="hover" className={styles.scrolled}>
               <div style={{ overflowX: 'auto' }}>
-                <Table striped highlightOnHover withTableBorder withColumnBorders style={{ minWidth: '800px' }}>
+                <Table striped highlightOnHover withTableBorder withColumnBorders style={{ minWidth: '1000px' }}>
                 <Table.Thead style={{ position: 'sticky', top: 0, backgroundColor: '#f8f9fa'}}>
                   <Table.Tr>
                     <Table.Th style={{ width: '8%', textAlign: 'center' }}>Copy</Table.Th>
