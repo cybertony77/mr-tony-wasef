@@ -5,8 +5,8 @@ import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
 if (typeof window !== 'undefined') {
-  // Local worker (copied to /public) — avoids slow unpkg CDN on first open
-  pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+  // Served from frontend/pdf.worker.min.mjs via /api/pdf-worker (not /public)
+  pdfjs.GlobalWorkerOptions.workerSrc = '/api/pdf-worker';
 }
 
 function clamp(value, min, max) {

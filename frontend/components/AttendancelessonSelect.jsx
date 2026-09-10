@@ -28,11 +28,35 @@ function sortCategoryKeys(keys) {
   });
 }
 
+function lessonCreatedRank(lesson) {
+  if (lesson?.createdAt) {
+    const t = new Date(lesson.createdAt).getTime();
+    if (!Number.isNaN(t)) return t;
+  }
+  if (typeof lesson?.id === 'number') return lesson.id;
+  const asNum = Number(lesson?.id);
+  if (!Number.isNaN(asNum) && lesson?.id != null && lesson?.id !== '') return asNum;
+  return Number.MAX_SAFE_INTEGER;
+}
+
 function groupLessonsByCategory(lessonRecords) {
+  // Oldest created first (matches API id/createdAt order)
+  const orderedRecords = [...lessonRecords].sort((a, b) => {
+    const ra = lessonCreatedRank(a);
+    const rb = lessonCreatedRank(b);
+    if (ra !== rb) return ra - rb;
+    const ida = Number(a?.id) || 0;
+    const idb = Number(b?.id) || 0;
+    if (ida !== idb) return ida - idb;
+    return String(a?.name || '').localeCompare(String(b?.name || ''), undefined, {
+      sensitivity: 'base',
+    });
+  });
+
   const byCat = new Map();
   const uncategorized = [];
 
-  for (const lesson of lessonRecords) {
+  for (const lesson of orderedRecords) {
     const name = lesson?.name;
     if (!name) continue;
     const c = lesson.category;
@@ -45,13 +69,6 @@ function groupLessonsByCategory(lessonRecords) {
       byCat.get(key).push(name);
     }
   }
-
-  for (const arr of byCat.values()) {
-    arr.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-  }
-  uncategorized.sort((a, b) =>
-    a.localeCompare(b, undefined, { sensitivity: 'base' })
-  );
 
   const orderedKeys = sortCategoryKeys([...byCat.keys()]);
   return { orderedKeys, byCat, uncategorized };
