@@ -131,8 +131,8 @@ export function getFreeViewsRemaining(session, studentEntry) {
  * Always uses the *current* session viewing_limit_value / type (so admin increases reopen access).
  *
  * number_of_days (free / free_if_attended_in_center):
- * - The window starts when the student first opens the video.
- * - Inclusive end: first opened 08/11 + 10 days → open through 18/11.
+ * - The window starts when the student first opens the video (Africa/Cairo).
+ * - N Cairo calendar days: first opened 08/11 + 10 days → open through 17/11.
  *
  * number_of_views:
  * - Countdown/usage starts from first open (first_opened_at)
@@ -162,11 +162,12 @@ export function isFreeViewingAccessValid(session, studentEntry, lessonData = nul
     if (!startedAt) return true;
     const startedYmd = toEgyptYmd(new Date(startedAt));
     if (!startedYmd) return false;
-    const expiresYmd = addDaysEgyptYmd(startedYmd, limit); // inclusive end date
+    // Egypt/Cairo civil days — same window as VVC/VHC: N days starting first open
+    // (valid while today < firstYmd + N). Example: open 08/11 with 10 days → through 17/11.
+    const expiresYmd = addDaysEgyptYmd(startedYmd, limit);
     const todayYmd = getEgyptYmdToday();
     if (!expiresYmd || !todayYmd) return false;
-    // Open from first access day through first access + N days (inclusive)
-    return compareEgyptYmd(todayYmd, expiresYmd) <= 0;
+    return compareEgyptYmd(todayYmd, expiresYmd) < 0;
   }
 
   return true;

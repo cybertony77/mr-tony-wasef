@@ -9,7 +9,14 @@ import styles from '../../../styles/TableScrollArea.module.css';
 import { useVHCPaginated } from '../../../lib/api/vhc';
 import LoadingSkeleton from '../../../components/LoadingSkeleton';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSystemConfig } from '../../../lib/api/system';
+import { useSystemConfig, canAccessVvcVhc, isFeatureEnabled } from '../../../lib/api/system';
+import { useProfile } from '../../../lib/api/auth';
+import {
+  toEgyptYmd,
+  getEgyptYmdToday,
+  compareEgyptYmd,
+  addDaysEgyptYmd,
+} from '../../../lib/egyptDateTime';
 import apiClient from '../../../lib/axios';
 import AccountStateSelect from '../../../components/AccountStateSelect';
 import ViewedSelect from '../../../components/ViewedSelect';
@@ -37,20 +44,27 @@ function InputWithButton(props) {
 
 export default function VerificationHomeworkCodes() {
   const router = useRouter();
+  const { data: profile, isLoading: profileLoading } = useProfile();
   const { data: systemConfig } = useSystemConfig();
-  const isHomeworksVideosEnabled = systemConfig?.homeworks_videos === true || systemConfig?.homeworks_videos === 'true';
+  const isHomeworksVideosEnabled = isFeatureEnabled(systemConfig, 'homeworks_videos');
+  const canManageVhc = canAccessVvcVhc(systemConfig, profile?.role);
+  const egyptTomorrowYmd = addDaysEgyptYmd(getEgyptYmdToday(), 1);
   const containerRef = useRef(null);
   const [currentPage, setCurrentPage] = useState(1);
   
-  // Redirect if feature is disabled
+  // Redirect if feature is disabled or role not allowed
   useEffect(() => {
     if (systemConfig && !isHomeworksVideosEnabled) {
       router.push('/dashboard/manage_online_system');
+      return;
     }
-  }, [systemConfig, isHomeworksVideosEnabled, router]);
+    if (!profileLoading && profile && systemConfig && !canManageVhc) {
+      router.push('/dashboard/manage_online_system');
+    }
+  }, [systemConfig, isHomeworksVideosEnabled, router, profileLoading, profile, canManageVhc]);
   
-  // Don't render if feature is disabled
-  if (systemConfig && !isHomeworksVideosEnabled) {
+  // Don't render if feature is disabled or role not allowed
+  if ((systemConfig && !isHomeworksVideosEnabled) || (!profileLoading && profile && systemConfig && !canManageVhc)) {
     return null;
   }
   const pageSize = 100;
@@ -304,33 +318,14 @@ export default function VerificationHomeworkCodes() {
     setErrorMessage('');
   };
 
-  // Helper function to format date for input (YYYY-MM-DD)
+  // Helper function to format date for input (YYYY-MM-DD in Africa/Cairo)
   const formatDateForInput = (dateValue) => {
     if (!dateValue) return '';
     // If it's already a string in YYYY-MM-DD format, return it
     if (typeof dateValue === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateValue)) {
       return dateValue;
     }
-    // If it's a Date object, format it as YYYY-MM-DD in local timezone
-    if (dateValue instanceof Date) {
-      const year = dateValue.getFullYear();
-      const month = String(dateValue.getMonth() + 1).padStart(2, '0');
-      const day = String(dateValue.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    }
-    // If it's a string in another format, try to parse it
-    try {
-      const date = new Date(dateValue);
-      if (!isNaN(date.getTime())) {
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
-      }
-    } catch (e) {
-      // If parsing fails, return empty string
-    }
-    return '';
+    return toEgyptYmd(dateValue) || '';
   };
 
   // Handle edit VHC
@@ -381,13 +376,9 @@ export default function VerificationHomeworkCodes() {
       if (!formData.deadline_date) {
         newErrors.deadline_date = '❌ Deadline date is required';
       } else {
-        // Parse date in local timezone to avoid timezone shift
+        // Compare against Egypt calendar day
         if (/^\d{4}-\d{2}-\d{2}$/.test(formData.deadline_date)) {
-          const [year, month, day] = formData.deadline_date.split('-').map(Number);
-          const selectedDate = new Date(year, month - 1, day);
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
-          if (selectedDate <= today) {
+          if (compareEgyptYmd(formData.deadline_date, getEgyptYmdToday()) <= 0) {
             newErrors.deadline_date = '❌ Deadline date must be in the future';
           }
         }
@@ -438,13 +429,9 @@ export default function VerificationHomeworkCodes() {
       if (!formData.deadline_date) {
         newErrors.deadline_date = '❌ Deadline date is required';
       } else {
-        // Parse date in local timezone to avoid timezone shift
+        // Compare against Egypt calendar day
         if (/^\d{4}-\d{2}-\d{2}$/.test(formData.deadline_date)) {
-          const [year, month, day] = formData.deadline_date.split('-').map(Number);
-          const selectedDate = new Date(year, month - 1, day);
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
-          if (selectedDate <= today) {
+          if (compareEgyptYmd(formData.deadline_date, getEgyptYmdToday()) <= 0) {
             newErrors.deadline_date = '❌ Deadline date must be in the future';
           }
         }
@@ -723,34 +710,16 @@ export default function VerificationHomeworkCodes() {
                   {vhcs.map((vhc, index) => {
                     const codeSettings = vhc.code_settings || 'number_of_views';
                     const isPaid = String(vhc.payment_state || '').toLowerCase() === 'paid';
-                    // Helper to format date string (YYYY-MM-DD) to MM/DD/YYYY
+                    // Helper to format date string (YYYY-MM-DD) to DD/MM/YYYY (Egypt civil date)
                     const formatDateString = (dateStr) => {
                       if (!dateStr) return 'N/A';
-                      // If it's already in YYYY-MM-DD format, parse it directly
-                      if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-                        const [year, month, day] = dateStr.split('-');
-                        return `${month}/${day}/${year}`;
-                      }
-                      // If it's a Date object, format it in local timezone
-                      if (dateStr instanceof Date) {
-                        const month = String(dateStr.getMonth() + 1).padStart(2, '0');
-                        const day = String(dateStr.getDate()).padStart(2, '0');
-                        const year = dateStr.getFullYear();
-                        return `${month}/${day}/${year}`;
-                      }
-                      // Try to parse as date string
-                      try {
-                        const date = new Date(dateStr);
-                        if (!isNaN(date.getTime())) {
-                          const month = String(date.getMonth() + 1).padStart(2, '0');
-                          const day = String(date.getDate()).padStart(2, '0');
-                          const year = date.getFullYear();
-                          return `${month}/${day}/${year}`;
-                        }
-                      } catch (e) {
-                        // If parsing fails, return as is
-                      }
-                      return dateStr || 'N/A';
+                      const ymd =
+                        typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)
+                          ? dateStr
+                          : toEgyptYmd(dateStr);
+                      if (!ymd) return dateStr || 'N/A';
+                      const [year, month, day] = ymd.split('-');
+                      return `${day}/${month}/${year}`;
                     };
                     
                     const settingsDisplay = codeSettings === 'number_of_views' 
@@ -1125,7 +1094,7 @@ export default function VerificationHomeworkCodes() {
                       type="date"
                       value={formData.deadline_date}
                       onChange={(e) => setFormData({ ...formData, deadline_date: e.target.value })}
-                      min={new Date().toISOString().split('T')[0]}
+                      min={egyptTomorrowYmd}
                       style={{
                         width: '100%',
                         padding: '12px 16px',
@@ -1350,7 +1319,7 @@ export default function VerificationHomeworkCodes() {
                       type="date"
                       value={formData.deadline_date}
                       onChange={(e) => setFormData({ ...formData, deadline_date: e.target.value })}
-                      min={new Date().toISOString().split('T')[0]}
+                      min={egyptTomorrowYmd}
                       style={{
                         width: '100%',
                         padding: '12px 16px',

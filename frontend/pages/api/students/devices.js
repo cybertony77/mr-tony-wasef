@@ -218,8 +218,8 @@ export default async function handler(req, res) {
           }
 
           return {
-            device_id: d.device_id || 'unknown-device',
-            ip: d.ip || 'unknown',
+            device_id: d.device_id || '—',
+            ip: d.last_ip || d.ip || 'unknown',
             browser: d.browser || 'Unknown',
             os: d.os || 'Unknown',
             device_type: d.device_type || 'desktop',

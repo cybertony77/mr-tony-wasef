@@ -4,6 +4,7 @@ import { generatePublicStudentLink } from '../../lib/generatePublicLink';
 import Title from '../../components/Title';
 import { useStudents } from '../../lib/api/students';
 import { useSystemConfig } from '../../lib/api/system';
+import { sortStudentsByName } from '../../lib/sortStudentsByName';
 
 export default function GenerateLink() {
   const { data: systemConfig } = useSystemConfig();
@@ -101,7 +102,7 @@ export default function GenerateLink() {
           return;
         }
         if (matchingStudents.length > 1) {
-          setSearchResults(matchingStudents);
+          setSearchResults(sortStudentsByName(matchingStudents));
           setShowSearchResults(true);
           setError(`Found ${matchingStudents.length} students. Please select one.`);
           return;
@@ -130,7 +131,7 @@ export default function GenerateLink() {
         setSelectedStudent(foundStudent);
       } else if (matchingStudents.length > 1) {
         // Multiple matches, show selection
-        setSearchResults(matchingStudents);
+        setSearchResults(sortStudentsByName(matchingStudents));
         setShowSearchResults(true);
         setError(`Found ${matchingStudents.length} students. Please select one.`);
       } else {

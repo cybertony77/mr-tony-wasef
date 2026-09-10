@@ -6,6 +6,7 @@ import { duplicateCenterMongoFragment } from '../../../lib/onlineItemDuplicate';
 import {
   isDeadlineStrictlyInFutureEgypt,
   normalizeDeadlineTimeField,
+  normalizeDeadlineDateYmd,
   parseDeadlineTime,
 } from '../../../lib/deadlineTimeEgypt';
 import { validateOnlineQuestionPayload, serializeOnlineQuestionForDb } from '../../../lib/onlineQuestionApiNormalize';
@@ -169,7 +170,7 @@ export default async function handler(req, res) {
         lesson: lessonTrimmed,
         mock_exam_type: effectiveType,
         deadline_type: deadline_type || 'no_deadline',
-        deadline_date: deadline_type === 'with_deadline' ? deadline_date : null,
+        deadline_date: deadline_type === 'with_deadline' ? (normalizeDeadlineDateYmd(deadline_date) || deadline_date) : null,
         deadline_time: deadline_type === 'with_deadline' ? normDeadlineTimeMe : null,
         timer: effectiveType === 'questions' ? (timer !== null && timer !== undefined ? parseInt(timer) : null) : null,
         shuffle_questions_and_answers: effectiveType === 'questions' ? (shuffle_questions_and_answers === true || shuffle_questions_and_answers === 'true') : false,
@@ -290,7 +291,7 @@ export default async function handler(req, res) {
         lesson_name: lesson_name.trim(),
         mock_exam_type: effectiveType,
         deadline_type: deadline_type || 'no_deadline',
-        deadline_date: deadline_type === 'with_deadline' ? deadline_date : null,
+        deadline_date: deadline_type === 'with_deadline' ? (normalizeDeadlineDateYmd(deadline_date) || deadline_date) : null,
         deadline_time: deadline_type === 'with_deadline' ? normDeadlineTimeMePut : null,
         timer: effectiveType === 'questions' ? (timer !== null && timer !== undefined ? parseInt(timer) : null) : null,
         shuffle_questions_and_answers: effectiveType === 'questions' ? (shuffle_questions_and_answers === true || shuffle_questions_and_answers === 'true') : false,

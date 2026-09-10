@@ -7,6 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../../../lib/axios';
 import Image from 'next/image';
 import { useNationalSystem, getCourseFieldLabels } from '../../../../lib/api/system';
+import { sortStudentsByName } from '../../../../lib/sortStudentsByName';
 
 export default function PreviewStudentQuizzes() {
   const isNational = useNationalSystem();
@@ -146,7 +147,7 @@ export default function PreviewStudentQuizzes() {
           setSearchId(matchingStudents[0].id.toString());
           setStudentId(matchingStudents[0].id.toString());
         } else if (matchingStudents.length > 1) {
-          setSearchResults(matchingStudents);
+          setSearchResults(sortStudentsByName(matchingStudents));
           setShowSearchResults(true);
           setSearchError(`❌ Found ${matchingStudents.length} students. Please select one.`);
         } else {

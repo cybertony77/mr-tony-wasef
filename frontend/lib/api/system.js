@@ -3,7 +3,7 @@ import apiClient from '../axios';
 
 export const systemKeys = {
   all: ['system'],
-  config: () => [...systemKeys.all, 'config', 'features-v3'],
+  config: () => [...systemKeys.all, 'config', 'features-v4'],
 };
 
 const systemApi = {
@@ -40,6 +40,21 @@ export const useSystemConfig = (options = {}) => {
 export function useNationalSystem() {
   const { data: systemConfig } = useSystemConfig();
   return isFeatureEnabled(systemConfig, 'national_system');
+}
+
+/**
+ * VVC/VHC manage buttons + pages.
+ * SYSTEM_VVC_AND_VHC_ADMINS_ONLY=true → admin + developer only.
+ * Missing/false → admin + assistant + developer (developer always allowed).
+ */
+export function canAccessVvcVhc(systemConfig, role) {
+  if (role === 'developer' || role === 'admin') return true;
+  if (role === 'assistant') {
+    // Wait for config so assistants don't briefly see buttons when admins-only is on
+    if (!systemConfig) return false;
+    return !isFeatureEnabled(systemConfig, 'vvc_and_vhc_admins_only');
+  }
+  return false;
 }
 
 export function getCourseFieldLabels(isNational) {

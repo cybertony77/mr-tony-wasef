@@ -98,6 +98,12 @@ export default async function handler(req, res) {
     const subscription = envConfig.SYSTEM_SUBSCRIPTION === 'true' || process.env.SYSTEM_SUBSCRIPTION === 'true';
     const deviceLimitations = envConfig.SYSTEM_DEVICE_LIMITATIONS === 'true' || process.env.SYSTEM_DEVICE_LIMITATIONS === 'true';
     const marketingPage = envConfig.SYSTEM_MARKETING_PAGE === 'true' || process.env.SYSTEM_MARKETING_PAGE === 'true';
+    const vvcAndVhcAdminsOnly =
+      envConfig.SYSTEM_VVC_AND_VHC_ADMINS_ONLY === 'true' ||
+      process.env.SYSTEM_VVC_AND_VHC_ADMINS_ONLY === 'true';
+    const studentWaMessageBtn =
+      envConfig.SYSTEM_STUDENT_WA_MESSAGE_BTN === 'true' ||
+      process.env.SYSTEM_STUDENT_WA_MESSAGE_BTN === 'true';
     const pageBackground = parseSystemBackground(
       envConfig.SYSTEM_COLORS || process.env.SYSTEM_COLORS
     );
@@ -142,6 +148,8 @@ export default async function handler(req, res) {
       subscription: subscription,
       device_limitations: deviceLimitations,
       marketing_page: marketingPage,
+      vvc_and_vhc_admins_only: vvcAndVhcAdminsOnly,
+      student_wa_message_btn: studentWaMessageBtn,
       page_background: pageBackground,
       SYSTEM_COLORS: envConfig.SYSTEM_COLORS || process.env.SYSTEM_COLORS || '',
       national_system: nationalSystem,

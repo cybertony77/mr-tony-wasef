@@ -11,8 +11,10 @@ import apiClient from '../../lib/axios';
 import Image from 'next/image';
 import { verifySignature } from '../../lib/hmac';
 import ChartTabs from '../../components/ChartTabs';
-import { useSystemConfig, useNationalSystem, getCourseFieldLabels } from '../../lib/api/system';
+import { useSystemConfig, useNationalSystem, getCourseFieldLabels, isFeatureEnabled } from '../../lib/api/system';
 import MarketingPageLoader from '../../components/MarketingPageLoader';
+import SiteSeo from '../../components/SiteSeo';
+import { sortStudentsByName } from '../../lib/sortStudentsByName';
 
 const welcomeDisplayFont = Playfair_Display({
   subsets: ['latin'],
@@ -187,6 +189,7 @@ export default function StudentInfo() {
   const isPaymentSystemEnabled = systemConfig?.payment_system === true || systemConfig?.payment_system === 'true';
   const isMockExamsEnabled = systemConfig?.mock_exams === true || systemConfig?.mock_exams === 'true';
   const isHomeworksVideosEnabled = systemConfig?.homeworks_videos === true || systemConfig?.homeworks_videos === 'true';
+  const isStudentWaMessageBtnEnabled = isFeatureEnabled(systemConfig, 'student_wa_message_btn');
 
   // Get all students for name-based search (only if authenticated)
   const { data: allStudents } = useStudents({}, { 
@@ -492,7 +495,7 @@ export default function StudentInfo() {
           setSearchId(foundStudent.id.toString());
           setStudentId(foundStudent.id.toString());
         } else if (phoneMatches.length > 1) {
-          setSearchResults(phoneMatches);
+          setSearchResults(sortStudentsByName(phoneMatches));
           setShowSearchResults(true);
           setError(`Found ${phoneMatches.length} students. Please select one.`);
         } else {
@@ -519,7 +522,7 @@ export default function StudentInfo() {
           setStudentId(foundStudent.id.toString());
         } else if (matchingStudents.length > 1) {
           // Multiple matches, show selection
-          setSearchResults(matchingStudents);
+          setSearchResults(sortStudentsByName(matchingStudents));
           setShowSearchResults(true);
           setError(`Found ${matchingStudents.length} students. Please select one.`);
         } else {
@@ -556,7 +559,7 @@ export default function StudentInfo() {
 
   // Helper function to get attendance status for a lesson
   const getLessonAttendance = (lessonName) => {
-    if (!currentStudent || !currentStudent.lessons) return { attended: false, hwDone: false, homework_degree: null, quizDegree: null, message_state: false, parent_message_state: false, lastAttendance: null, view_homework_video: false };
+    if (!currentStudent || !currentStudent.lessons) return { attended: false, hwDone: false, homework_degree: null, quizDegree: null, message_state: false, student_message_state: false, parent_message_state: false, lastAttendance: null, view_homework_video: false };
     
     // Handle both new object format and old array format for backward compatibility
     let lessonData;
@@ -572,7 +575,7 @@ export default function StudentInfo() {
       lessonData = weekIndex >= 0 ? currentStudent.weeks[weekIndex] : null;
     }
     
-    if (!lessonData) return { attended: false, hwDone: false, homework_degree: null, quizDegree: null, message_state: false, parent_message_state: false, lastAttendance: null, view_homework_video: false };
+    if (!lessonData) return { attended: false, hwDone: false, homework_degree: null, quizDegree: null, message_state: false, student_message_state: false, parent_message_state: false, lastAttendance: null, view_homework_video: false };
     
     return {
       attended: lessonData.attended || false,
@@ -581,7 +584,8 @@ export default function StudentInfo() {
       quizDegree: lessonData.quizDegree || null,
       comment: lessonData.comment || null,
       message_state: lessonData.message_state || false,
-      parent_message_state: lessonData.parent_message_state || false,
+      student_message_state: lessonData.student_message_state || false,
+      parent_message_state: lessonData.parent_message_state || lessonData.message_state || false,
       lastAttendance: lessonData.lastAttendance || null,
       view_homework_video: lessonData.view_homework_video || false
     };
@@ -718,6 +722,16 @@ export default function StudentInfo() {
 
   return (
     <div style={{ position: 'relative', minHeight: '100%' }}>
+      {/* Private parent/staff view — NEVER index (accessible ≠ indexable) */}
+      <SiteSeo
+        title="Student Information"
+        description="Private student progress page for authorized parents and staff. This page is not indexed by search engines."
+        path="/dashboard/student_info"
+        noindex
+        omitCanonical
+        siteName={systemName || systemConfig?.name}
+        origin={systemConfig?.domain}
+      />
       {isPublicGuest && (
         <MarketingPageLoader
           active={showPublicWelcomeLoader}
@@ -1505,6 +1519,9 @@ export default function StudentInfo() {
                       {hasAuthToken && (
                         <Table.Th style={{ width: '140px', minWidth: '140px', textAlign: 'center' }}>Parent Message State</Table.Th>
                       )}
+                      {hasAuthToken && isStudentWaMessageBtnEnabled && (
+                        <Table.Th style={{ width: '140px', minWidth: '140px', textAlign: 'center' }}>Student Message State</Table.Th>
+                      )}
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
@@ -1612,11 +1629,22 @@ export default function StudentInfo() {
                           {hasAuthToken && (
                           <Table.Td style={{ width: '140px', minWidth: '140px', textAlign: 'center' }}>
                             <span style={{ 
-                              color: lessonData.parent_message_state ? '#28a745' : '#dc3545',
+                              color: (lessonData.parent_message_state || lessonData.message_state) ? '#28a745' : '#dc3545',
                               fontWeight: 'bold',
                               fontSize: '1rem'
                             }}>
-                              {lessonData.parent_message_state ? '✅ Sent' : '❌ Not Sent'}
+                              {(lessonData.parent_message_state || lessonData.message_state) ? '✅ Sent' : '❌ Not Sent'}
+                            </span>
+                          </Table.Td>
+                          )}
+                          {hasAuthToken && isStudentWaMessageBtnEnabled && (
+                          <Table.Td style={{ width: '140px', minWidth: '140px', textAlign: 'center' }}>
+                            <span style={{ 
+                              color: lessonData.student_message_state ? '#28a745' : '#dc3545',
+                              fontWeight: 'bold',
+                              fontSize: '1rem'
+                            }}>
+                              {lessonData.student_message_state ? '✅ Sent' : '❌ Not Sent'}
                             </span>
                           </Table.Td>
                           )}

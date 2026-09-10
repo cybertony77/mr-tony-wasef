@@ -7,6 +7,7 @@ import {
   isZoomRecordingUuid,
 } from './zoomUtils';
 import { readEnvInt } from './videoStreamLifecycle';
+import { getEgyptYmdToday, addDaysEgyptYmd } from './egyptDateTime';
 
 function loadEnvConfig() {
   try {
@@ -31,28 +32,50 @@ function loadEnvConfig() {
   }
 }
 
-const envConfig = loadEnvConfig();
-const ZOOM_CLIENT_ID = envConfig.ZOOM_CLIENT_ID || process.env.ZOOM_CLIENT_ID;
-const ZOOM_CLIENT_SECRET = envConfig.ZOOM_CLIENT_SECRET || process.env.ZOOM_CLIENT_SECRET;
-const ZOOM_ACCOUNT_ID = envConfig.ZOOM_ACCOUNT_ID || process.env.ZOOM_ACCOUNT_ID;
+/** Live Zoom S2S credentials (re-read env so key rotation works without restart). */
+function getZoomCredentials() {
+  const envConfig = loadEnvConfig();
+  return {
+    envConfig,
+    clientId: envConfig.ZOOM_CLIENT_ID || process.env.ZOOM_CLIENT_ID || '',
+    clientSecret: envConfig.ZOOM_CLIENT_SECRET || process.env.ZOOM_CLIENT_SECRET || '',
+    accountId: envConfig.ZOOM_ACCOUNT_ID || process.env.ZOOM_ACCOUNT_ID || '',
+  };
+}
 
-const OAUTH_TIMEOUT_MS = readEnvInt(envConfig, 'ZOOM_OAUTH_TIMEOUT_MS', 12_000);
-const OAUTH_MAX_ATTEMPTS = 3;
-/** Refresh Zoom token this many ms before expiry (default 5 minutes). */
-const TOKEN_SKEW_MS = readEnvInt(envConfig, 'ZOOM_TOKEN_SKEW_MS', 5 * 60_000);
-/** Timeout for Zoom REST calls used while resolving a recording download URL. */
-const ZOOM_API_TIMEOUT_MS = readEnvInt(envConfig, 'ZOOM_API_TIMEOUT_MS', 12_000);
-const ZOOM_LIST_FETCH_MS = readEnvInt(envConfig, 'ZOOM_LIST_FETCH_MS', 15_000);
+function getZoomRuntimeConfig() {
+  const { envConfig } = getZoomCredentials();
+  return {
+    oauthTimeoutMs: readEnvInt(envConfig, 'ZOOM_OAUTH_TIMEOUT_MS', 12_000),
+    oauthMaxAttempts: 3,
+    tokenSkewMs: readEnvInt(envConfig, 'ZOOM_TOKEN_SKEW_MS', 10 * 60_000),
+    apiTimeoutMs: readEnvInt(envConfig, 'ZOOM_API_TIMEOUT_MS', 12_000),
+    listFetchMs: readEnvInt(envConfig, 'ZOOM_LIST_FETCH_MS', 15_000),
+  };
+}
 
 let cachedToken = null;
 let cachedTokenExpiresAt = 0;
 /** Single-flight mutex: concurrent callers share one in-progress OAuth refresh. */
 let tokenPromise = null;
+/** Tracks which credential fingerprint produced the cache (forces refresh on env change). */
+let cachedCredFingerprint = '';
+
+function zoomCredFingerprint(creds) {
+  return `${creds.clientId}|${creds.accountId}|${String(creds.clientSecret).slice(0, 8)}`;
+}
 
 function ensureZoomEnv() {
-  if (!ZOOM_CLIENT_ID || !ZOOM_CLIENT_SECRET || !ZOOM_ACCOUNT_ID) {
+  const creds = getZoomCredentials();
+  if (!creds.clientId || !creds.clientSecret || !creds.accountId) {
     throw new Error('Zoom configuration is missing');
   }
+  const fp = zoomCredFingerprint(creds);
+  if (cachedCredFingerprint && cachedCredFingerprint !== fp) {
+    clearZoomAccessTokenCache();
+  }
+  cachedCredFingerprint = fp;
+  return creds;
 }
 
 export function clearZoomAccessTokenCache() {
@@ -114,9 +137,10 @@ function logZoomApiError(context, response, payload, extra = {}) {
   });
 }
 
-async function fetchZoomApi(url, { method = 'GET', headers = {}, timeoutMs = ZOOM_API_TIMEOUT_MS, context = 'request' } = {}) {
+async function fetchZoomApi(url, { method = 'GET', headers = {}, timeoutMs, context = 'request' } = {}) {
+  const resolvedTimeout = timeoutMs ?? getZoomRuntimeConfig().apiTimeoutMs;
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const timeoutId = setTimeout(() => controller.abort(), resolvedTimeout);
   const startedAt = Date.now();
 
   try {
@@ -129,12 +153,12 @@ async function fetchZoomApi(url, { method = 'GET', headers = {}, timeoutMs = ZOO
       });
     } catch (error) {
       if (error?.name === 'AbortError' || error?.code === 'ABORT_ERR') {
-        const err = new Error(`Zoom API request timed out after ${timeoutMs}ms (${context})`);
+        const err = new Error(`Zoom API request timed out after ${resolvedTimeout}ms (${context})`);
         err.statusCode = 504;
         err.isTimeout = true;
         console.error('[zoom-api] timeout', {
           context,
-          timeoutMs,
+          timeoutMs: resolvedTimeout,
           durationMs: Date.now() - startedAt,
         });
         throw err;
@@ -162,12 +186,14 @@ async function fetchZoomApi(url, { method = 'GET', headers = {}, timeoutMs = ZOO
  * @returns {{ accessToken: string, expiresAt: number, expiresIn: number }}
  */
 async function requestAccessTokenOnce() {
-  const basic = Buffer.from(`${ZOOM_CLIENT_ID}:${ZOOM_CLIENT_SECRET}`).toString('base64');
+  const creds = ensureZoomEnv();
+  const { oauthTimeoutMs } = getZoomRuntimeConfig();
+  const basic = Buffer.from(`${creds.clientId}:${creds.clientSecret}`).toString('base64');
   const tokenUrl =
-    `https://zoom.us/oauth/token?grant_type=account_credentials&account_id=${encodeURIComponent(ZOOM_ACCOUNT_ID)}`;
+    `https://zoom.us/oauth/token?grant_type=account_credentials&account_id=${encodeURIComponent(creds.accountId)}`;
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), OAUTH_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => controller.abort(), oauthTimeoutMs);
   const startedAt = Date.now();
 
   try {
@@ -182,10 +208,10 @@ async function requestAccessTokenOnce() {
       });
     } catch (error) {
       if (error?.name === 'AbortError' || error?.code === 'ABORT_ERR') {
-        const err = new Error(`Zoom OAuth request timed out after ${OAUTH_TIMEOUT_MS}ms`);
+        const err = new Error(`Zoom OAuth request timed out after ${oauthTimeoutMs}ms`);
         err.statusCode = 504;
         err.isTimeout = true;
-        console.error('[zoom-oauth] timeout', { timeoutMs: OAUTH_TIMEOUT_MS });
+        console.error('[zoom-oauth] timeout', { timeoutMs: oauthTimeoutMs });
         throw err;
       }
       const err = new Error(error?.message || 'Zoom OAuth network error');
@@ -231,11 +257,12 @@ async function requestAccessTokenOnce() {
 
 async function generateAccessTokenWithRetry() {
   const overallStartedAt = Date.now();
+  const { oauthMaxAttempts } = getZoomRuntimeConfig();
   console.log('[zoom-oauth] token generation started');
 
   let lastError = null;
 
-  for (let attempt = 1; attempt <= OAUTH_MAX_ATTEMPTS; attempt += 1) {
+  for (let attempt = 1; attempt <= oauthMaxAttempts; attempt += 1) {
     try {
       const result = await requestAccessTokenOnce();
       console.log('[zoom-oauth] token generation completed', {
@@ -252,7 +279,7 @@ async function generateAccessTokenWithRetry() {
 
       console.error('[zoom-oauth] attempt failed', {
         attempt,
-        maxAttempts: OAUTH_MAX_ATTEMPTS,
+        maxAttempts: oauthMaxAttempts,
         httpStatus: statusCode || null,
         zoomCode: error?.zoomCode ?? null,
         zoomMessage: error?.zoomMessage || error?.message || 'unknown',
@@ -260,7 +287,7 @@ async function generateAccessTokenWithRetry() {
         isTimeout: Boolean(error?.isTimeout),
       });
 
-      if (!retryable || attempt >= OAUTH_MAX_ATTEMPTS) {
+      if (!retryable || attempt >= oauthMaxAttempts) {
         throw error;
       }
 
@@ -275,16 +302,26 @@ async function generateAccessTokenWithRetry() {
 
 export async function getZoomAccessToken(forceRefresh = false) {
   ensureZoomEnv();
+  const { tokenSkewMs } = getZoomRuntimeConfig();
 
   if (forceRefresh) {
     clearZoomAccessTokenCache();
+    // Wait out any in-flight refresh that may have cached a rejected token, then mint fresh.
+    if (tokenPromise) {
+      try {
+        await tokenPromise;
+      } catch {
+        /* ignore — we are forcing a new token */
+      }
+      clearZoomAccessTokenCache();
+    }
   }
 
   const now = Date.now();
   if (
     !forceRefresh &&
     cachedToken &&
-    cachedTokenExpiresAt > now + TOKEN_SKEW_MS
+    cachedTokenExpiresAt > now + tokenSkewMs
   ) {
     return cachedToken;
   }
@@ -295,7 +332,6 @@ export async function getZoomAccessToken(forceRefresh = false) {
   }
 
   // Single-flight: only one OAuth request at a time.
-  // tokenPromise is ALWAYS cleared in finally — success, timeout, or any throw.
   tokenPromise = (async () => {
     try {
       const result = await generateAccessTokenWithRetry();
@@ -333,7 +369,7 @@ export async function getZoomMeetingMp4DownloadUrl(meetingId, forceRefresh = fal
     `https://api.zoom.us/v2/meetings/${encodeURIComponent(String(meetingId).trim())}/recordings`,
     {
       headers: { Authorization: `Bearer ${token}` },
-      timeoutMs: ZOOM_API_TIMEOUT_MS,
+      timeoutMs: getZoomRuntimeConfig().apiTimeoutMs,
       context: 'meetings/recordings',
     }
   );
@@ -394,7 +430,7 @@ export async function getZoomMeetingRecordingsPayload(meetingId, forceRefresh = 
     `https://api.zoom.us/v2/meetings/${encoded}/recordings`,
     {
       headers: { Authorization: `Bearer ${token}` },
-      timeoutMs: ZOOM_API_TIMEOUT_MS,
+      timeoutMs: getZoomRuntimeConfig().apiTimeoutMs,
       context: 'meetings/{id}/recordings',
     }
   );
@@ -542,11 +578,8 @@ export async function resolveZoomMp4DownloadUrl(identifier, forceRefresh = false
 export async function listZoomUserRecordings(nextPageToken = '', forceRefresh = false) {
   const token = await getZoomAccessToken(forceRefresh);
   const safeNextPageToken = String(nextPageToken || '').trim();
-  const today = new Date();
-  const to = today.toISOString().slice(0, 10);
-  const fromDate = new Date(today);
-  fromDate.setDate(today.getDate() - 30);
-  const from = fromDate.toISOString().slice(0, 10);
+  const to = getEgyptYmdToday();
+  const from = addDaysEgyptYmd(to, -30) || to;
 
   const url = new URL('https://api.zoom.us/v2/users/me/recordings');
   url.searchParams.set('page_size', '30');
@@ -558,7 +591,7 @@ export async function listZoomUserRecordings(nextPageToken = '', forceRefresh = 
 
   const { response, payload, durationMs } = await fetchZoomApi(url.toString(), {
     headers: { Authorization: `Bearer ${token}` },
-    timeoutMs: ZOOM_LIST_FETCH_MS,
+    timeoutMs: getZoomRuntimeConfig().listFetchMs,
     context: 'users/me/recordings',
   });
 

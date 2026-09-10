@@ -8,6 +8,7 @@ import LoadingSkeleton from '../../components/LoadingSkeleton';
 import { TextInput, Button, Paper, Group, Text, Alert } from '@mantine/core';
 import { IconSearch, IconCheck, IconAlertCircle } from '@tabler/icons-react';
 import Image from 'next/image';
+import { sortStudentsByName } from '../../lib/sortStudentsByName';
 
 const hasValue = (value) => value !== null && value !== undefined && value !== '';
 const hasMockExamData = (exam) => Boolean(
@@ -85,7 +86,7 @@ export default function MockExam() {
             setStudentId(matchingStudents[0].id.toString());
             setStudent(matchingStudents[0]);
           } else if (matchingStudents.length > 1) {
-            setSearchResults(matchingStudents);
+            setSearchResults(sortStudentsByName(matchingStudents));
             setShowSearchResults(true);
             setError(`Found ${matchingStudents.length} students. Please select one.`);
           } else {
@@ -125,7 +126,7 @@ export default function MockExam() {
           }
 
           if (matchingStudents.length > 1) {
-            setSearchResults(matchingStudents);
+            setSearchResults(sortStudentsByName(matchingStudents));
             setShowSearchResults(true);
             setError(`Found ${matchingStudents.length} students. Please select one.`);
             return;
@@ -146,7 +147,7 @@ export default function MockExam() {
           setStudentId(foundStudent.id.toString());
           setStudent(foundStudent);
         } else if (matchingStudents.length > 1) {
-          setSearchResults(matchingStudents);
+          setSearchResults(sortStudentsByName(matchingStudents));
           setShowSearchResults(true);
           setError(`Found ${matchingStudents.length} students. Please select one.`);
         } else {

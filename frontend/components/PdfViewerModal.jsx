@@ -5,12 +5,22 @@ import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
 if (typeof window !== 'undefined') {
-  pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+  // Local worker (copied to /public) — avoids slow unpkg CDN on first open
+  pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
 }
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
+
+/** pdf.js progressive Range loading — faster first paint for large PDFs */
+const PDF_DOCUMENT_OPTIONS = {
+  // 256 KiB chunks over /api/files Range support
+  rangeChunkSize: 256 * 1024,
+  disableAutoFetch: false,
+  disableStream: false,
+  withCredentials: true,
+};
 
 export default function PdfViewerModal({ isOpen, onClose, fileUrl, fileName }) {
   const [numPages, setNumPages] = useState(0);
@@ -26,17 +36,33 @@ export default function PdfViewerModal({ isOpen, onClose, fileUrl, fileName }) {
 
   const normalizedFileUrl = typeof fileUrl === 'string' && fileUrl.trim() ? fileUrl.trim() : null;
 
-  const documentFile = useMemo(() => {
-    if (!normalizedFileUrl) return null;
-    // Same-origin R2 proxy needs cookies for authMiddleware
-    if (
+  const isApiFilesUrl = useMemo(() => {
+    if (!normalizedFileUrl) return false;
+    return (
       normalizedFileUrl.startsWith('/api/files/') ||
       normalizedFileUrl.includes('/api/files/')
-    ) {
+    );
+  }, [normalizedFileUrl]);
+
+  const documentFile = useMemo(() => {
+    if (!normalizedFileUrl) return null;
+    // Same-origin R2 proxy needs cookies for authMiddleware + Range progressive load
+    if (isApiFilesUrl) {
       return { url: normalizedFileUrl, withCredentials: true };
     }
     return normalizedFileUrl;
-  }, [normalizedFileUrl]);
+  }, [normalizedFileUrl, isApiFilesUrl]);
+
+  const documentOptions = useMemo(() => {
+    if (!isApiFilesUrl) {
+      return {
+        rangeChunkSize: 256 * 1024,
+        disableAutoFetch: false,
+        disableStream: false,
+      };
+    }
+    return PDF_DOCUMENT_OPTIONS;
+  }, [isApiFilesUrl]);
 
   const bumpDocumentRetry = useCallback(() => {
     setDocumentRetryKey((k) => k + 1);
@@ -56,19 +82,6 @@ export default function PdfViewerModal({ isOpen, onClose, fileUrl, fileName }) {
   };
 
   const pageInputValue = pageInputFocused ? (pageInputDraft === '' ? '' : pageInputDraft) : currentPage;
-
-  useEffect(() => {
-    if (!isOpen || numPages < 1) return undefined;
-    const scrollToPage = () => {
-      const root = scrollBodyRef.current;
-      const el = root?.querySelector(`#pdf-page-${currentPage}`) ?? document.getElementById(`pdf-page-${currentPage}`);
-      el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    };
-    const frame = requestAnimationFrame(() => {
-      requestAnimationFrame(scrollToPage);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [currentPage, isOpen, numPages]);
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -101,7 +114,30 @@ export default function PdfViewerModal({ isOpen, onClose, fileUrl, fileName }) {
     }
   }, [isOpen]);
 
-  const pages = useMemo(() => Array.from({ length: numPages }, (_, idx) => idx + 1), [numPages]);
+  // Only mount nearby pages — rendering every page kills large PDFs
+  const pagesToRender = useMemo(() => {
+    if (numPages < 1) return [];
+    const start = Math.max(1, currentPage - 1);
+    const end = Math.min(numPages, currentPage + 1);
+    const list = [];
+    for (let p = start; p <= end; p += 1) list.push(p);
+    return list;
+  }, [currentPage, numPages]);
+
+  useEffect(() => {
+    if (!isOpen || numPages < 1) return undefined;
+    const scrollToPage = () => {
+      const root = scrollBodyRef.current;
+      const el =
+        root?.querySelector(`#pdf-page-${currentPage}`) ??
+        document.getElementById(`pdf-page-${currentPage}`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+    const frame = requestAnimationFrame(() => {
+      requestAnimationFrame(scrollToPage);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [currentPage, isOpen, numPages, pagesToRender]);
 
   if (!isOpen) return null;
 
@@ -222,11 +258,12 @@ export default function PdfViewerModal({ isOpen, onClose, fileUrl, fileName }) {
           <Document
             key={`${normalizedFileUrl ?? 'none'}-${documentRetryKey}`}
             file={documentFile}
+            options={documentOptions}
             loading={
               <div className="pdf-state-card pdf-state-card--loading" role="status" aria-live="polite">
                 <div className="pdf-state-spinner" aria-hidden="true" />
                 <p className="pdf-state-title">Loading PDF…</p>
-                <p className="pdf-state-hint">Please wait while the document loads.</p>
+                <p className="pdf-state-hint">Large files open page-by-page for speed.</p>
               </div>
             }
             noData={
@@ -276,24 +313,29 @@ export default function PdfViewerModal({ isOpen, onClose, fileUrl, fileName }) {
             }}
           >
             <div className="pdf-pages-wrap">
-              {pages.map((pageNumber) => {
+              {pagesToRender.map((pageNumber) => {
                 const isActive = pageNumber === currentPage;
                 return (
-                <div
-                  key={pageNumber}
-                  id={`pdf-page-${pageNumber}`}
-                  className={`pdf-page-card ${isActive ? 'active' : ''}`}
-                  onClick={() => setCurrentPage(pageNumber)}
-                >
-                  <div className="pdf-page-label">Page {pageNumber}</div>
-                  <Page
-                    pageNumber={pageNumber}
-                    width={Math.floor(containerWidth * (isActive ? zoom : 1))}
-                    rotate={isActive ? rotation : 0}
-                    renderAnnotationLayer={isActive}
-                    renderTextLayer={isActive}
-                  />
-                </div>
+                  <div
+                    key={pageNumber}
+                    id={`pdf-page-${pageNumber}`}
+                    className={`pdf-page-card ${isActive ? 'active' : ''}`}
+                    onClick={() => setCurrentPage(pageNumber)}
+                  >
+                    <div className="pdf-page-label">Page {pageNumber}</div>
+                    <Page
+                      pageNumber={pageNumber}
+                      width={Math.floor(containerWidth * (isActive ? zoom : Math.min(zoom, 1)))}
+                      rotate={isActive ? rotation : 0}
+                      renderAnnotationLayer={isActive}
+                      renderTextLayer={isActive}
+                      loading={
+                        <div className="pdf-page-loading" role="status">
+                          Loading page {pageNumber}…
+                        </div>
+                      }
+                    />
+                  </div>
                 );
               })}
             </div>
@@ -469,6 +511,16 @@ export default function PdfViewerModal({ isOpen, onClose, fileUrl, fileName }) {
           box-sizing: border-box;
           width: max-content;
           min-width: 100%;
+        }
+        .pdf-page-loading {
+          min-height: 180px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #64748b;
+          font-size: 0.95rem;
+          font-weight: 600;
+          padding: 24px;
         }
         .pdf-page-card {
           border: 2px solid #dbe7ff;

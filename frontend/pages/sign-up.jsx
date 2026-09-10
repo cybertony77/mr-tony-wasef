@@ -4,6 +4,9 @@ import { useQuery } from '@tanstack/react-query';
 import Image from 'next/image';
 import apiClient from '../lib/axios';
 import NeedHelp from '../components/NeedHelp';
+import SiteSeo from '../components/SiteSeo';
+import { getPublicPageSeo } from '../lib/seo';
+import { useSystemConfig } from '../lib/api/system';
 
 // API function to check VAC
 const checkVAC = async (account_id, VAC) => {
@@ -20,6 +23,8 @@ const checkVAC = async (account_id, VAC) => {
 
 export default function SignUp() {
   const router = useRouter();
+  const { data: systemConfig } = useSystemConfig();
+  const seoCopy = getPublicPageSeo('/sign-up', systemConfig?.name);
   const [form, setForm] = useState({
     id: '',
     email: '',
@@ -402,6 +407,14 @@ export default function SignUp() {
   };
 
   return (
+    <>
+    <SiteSeo
+      title={seoCopy.title}
+      description={seoCopy.description}
+      path="/sign-up"
+      siteName={systemConfig?.name}
+      origin={systemConfig?.domain}
+    />
     <div style={{ 
       minHeight: '100vh',
       width: '100%',
@@ -867,7 +880,7 @@ export default function SignUp() {
 
       <div className="signup-container">
         <div className="logo-section">
-          <Image src="/logo.png" alt="Logo" width={120} height={120} className="logo-icon" style={{ borderRadius: '50%' }} priority />
+          <Image src="/logo.png" alt={`${systemConfig?.name || 'System'} logo`} width={120} height={120} className="logo-icon" style={{ borderRadius: '50%' }} priority />
           <h1 className="title">Sign Up</h1>
           <p className="subtitle">Create new student account</p>
         </div>
@@ -1378,6 +1391,7 @@ export default function SignUp() {
         </div>
       </div>
     </div>
+    </>
   );
 }
 

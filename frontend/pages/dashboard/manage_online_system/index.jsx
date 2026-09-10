@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import Image from 'next/image';
 import { useProfile } from '../../../lib/api/auth';
-import { useSystemConfig, isFeatureEnabled } from '../../../lib/api/system';
+import { useSystemConfig, isFeatureEnabled, canAccessVvcVhc } from '../../../lib/api/system';
 import Title from '../../../components/Title';
 
 export default function ManageOnlineSystem() {
@@ -20,6 +20,7 @@ export default function ManageOnlineSystem() {
   const isQuizzesEnabled = isFeatureEnabled(systemConfig, 'quizzes');
   const isMockExamsEnabled = isFeatureEnabled(systemConfig, 'mock_exams');
   const isDeviceLimitationsEnabled = isFeatureEnabled(systemConfig, 'device_limitations');
+  const canSeeVvcVhc = canAccessVvcVhc(systemConfig, profile?.role);
   const [accessDenied, setAccessDenied] = useState(false);
 
   useEffect(() => {
@@ -402,7 +403,7 @@ export default function ManageOnlineSystem() {
             Verification Accounts Codes (VAC)
           </button>
 
-          {isOnlineVideosEnabled && (
+          {isOnlineVideosEnabled && canSeeVvcVhc && (
             <button
               className="dashboard-btn"
               onClick={() => router.push("/dashboard/manage_online_system/verification_video_codes")}
@@ -412,7 +413,7 @@ export default function ManageOnlineSystem() {
             </button>
           )}
 
-          {isHomeworksVideosEnabled && (
+          {isHomeworksVideosEnabled && canSeeVvcVhc && (
             <button
               className="dashboard-btn"
               onClick={() => router.push("/dashboard/manage_online_system/verification_homework_codes")}

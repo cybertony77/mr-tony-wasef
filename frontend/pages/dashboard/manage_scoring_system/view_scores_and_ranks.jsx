@@ -320,7 +320,7 @@ export default function ViewScores() {
               />
             </div>
             <div className="filter-group">
-              <label className="filter-label">Filter by Score</label>
+              <label className="filter-label">Filter by {courseLabels.score}</label>
               <ScoreSelect
                 selectedScore={selectedScore}
                 onScoreChange={(score) => {
@@ -372,9 +372,15 @@ export default function ViewScores() {
                 offsetScrollbars
               >
                 <Table
-                  miw={isMobile ? (courseLabels.showCourseType ? 940 : 840) : (courseLabels.showCourseType ? 1280 : 1160)}
-                  verticalSpacing={isMobile ? 'xs' : 'sm'}
-                  horizontalSpacing={isMobile ? 'xs' : 'md'}
+                  miw={isMobile
+                    ? (courseLabels.showCourseType
+                        ? (courseLabels.showGradeField ? 1100 : 1040)
+                        : (courseLabels.showGradeField ? 1000 : 940))
+                    : (courseLabels.showCourseType
+                        ? (courseLabels.showGradeField ? 1280 : 1190)
+                        : (courseLabels.showGradeField ? 1160 : 1070))}
+                  verticalSpacing={isMobile ? 'sm' : 'sm'}
+                  horizontalSpacing={isMobile ? 'sm' : 'md'}
                   highlightOnHover
                   striped
                   withTableBorder={false}
@@ -382,25 +388,27 @@ export default function ViewScores() {
                 >
                   <Table.Thead className={cx(classes.header, { [classes.scrolled]: scrolled })}>
                     <Table.Tr>
-                      <Table.Th style={{ minWidth: isMobile ? 44 : 70, textAlign: 'center', fontSize: isMobile ? 11 : undefined }}>ID</Table.Th>
-                      <Table.Th style={{ minWidth: isMobile ? 72 : 140, textAlign: 'center', fontSize: isMobile ? 11 : undefined }}>Name</Table.Th>
-                      <Table.Th style={{ minWidth: isMobile ? 52 : 90, textAlign: 'center', fontSize: isMobile ? 11 : undefined }}>Gender</Table.Th>
-                      <Table.Th style={{ minWidth: isMobile ? 52 : 90, textAlign: 'center', fontSize: isMobile ? 11 : undefined }}>Grade</Table.Th>
-                      <Table.Th style={{ minWidth: isMobile ? 56 : 110, textAlign: 'center', fontSize: isMobile ? 11 : undefined }}>{courseLabels.course}</Table.Th>
-                      {courseLabels.showCourseType && (
-                        <Table.Th style={{ minWidth: isMobile ? 56 : 110, textAlign: 'center', fontSize: isMobile ? 11 : undefined }}>Type</Table.Th>
+                      <Table.Th style={{ minWidth: isMobile ? 56 : 70, textAlign: 'center', fontSize: isMobile ? 13 : undefined }}>ID</Table.Th>
+                      <Table.Th style={{ minWidth: isMobile ? 100 : 140, textAlign: 'center', fontSize: isMobile ? 13 : undefined }}>Name</Table.Th>
+                      <Table.Th style={{ minWidth: isMobile ? 64 : 90, textAlign: 'center', fontSize: isMobile ? 13 : undefined }}>Gender</Table.Th>
+                      {courseLabels.showGradeField && (
+                        <Table.Th style={{ minWidth: isMobile ? 64 : 90, textAlign: 'center', fontSize: isMobile ? 13 : undefined }}>Grade</Table.Th>
                       )}
-                      <Table.Th style={{ minWidth: isMobile ? 64 : 140, textAlign: 'center', fontSize: isMobile ? 11 : undefined }}>School</Table.Th>
-                      <Table.Th style={{ minWidth: isMobile ? 64 : 120, textAlign: 'center', fontSize: isMobile ? 11 : undefined }}>Center</Table.Th>
-                      <Table.Th style={{ minWidth: isMobile ? 44 : 90, textAlign: 'center', fontSize: isMobile ? 11 : undefined }}>Score</Table.Th>
-                      <Table.Th style={{ minWidth: isMobile ? 72 : 140, textAlign: 'center', fontSize: isMobile ? 11 : undefined }}>Rank (Center)</Table.Th>
-                      <Table.Th style={{ minWidth: isMobile ? 72 : 140, textAlign: 'center', fontSize: isMobile ? 11 : undefined }}>Rank ({courseLabels.course})</Table.Th>
+                      <Table.Th style={{ minWidth: isMobile ? 72 : 110, textAlign: 'center', fontSize: isMobile ? 13 : undefined }}>{courseLabels.course}</Table.Th>
+                      {courseLabels.showCourseType && (
+                        <Table.Th style={{ minWidth: isMobile ? 72 : 110, textAlign: 'center', fontSize: isMobile ? 13 : undefined }}>Type</Table.Th>
+                      )}
+                      <Table.Th style={{ minWidth: isMobile ? 80 : 140, textAlign: 'center', fontSize: isMobile ? 13 : undefined }}>School</Table.Th>
+                      <Table.Th style={{ minWidth: isMobile ? 80 : 120, textAlign: 'center', fontSize: isMobile ? 13 : undefined }}>Center</Table.Th>
+                      <Table.Th style={{ minWidth: isMobile ? 64 : 90, textAlign: 'center', fontSize: isMobile ? 13 : undefined }}>{courseLabels.score}</Table.Th>
+                      <Table.Th style={{ minWidth: isMobile ? 96 : 140, textAlign: 'center', fontSize: isMobile ? 13 : undefined }}>Rank (Center)</Table.Th>
+                      <Table.Th style={{ minWidth: isMobile ? 96 : 140, textAlign: 'center', fontSize: isMobile ? 13 : undefined }}>Rank ({courseLabels.course})</Table.Th>
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
                     {students.map((student, idx) => {
                       const score = student.score !== null && student.score !== undefined ? student.score : 0;
-                      const cellFont = isMobile ? 11 : 15;
+                      const cellFont = isMobile ? 14 : 15;
                       return (
                         <Table.Tr key={student.id || idx}>
                           <Table.Td style={{ textAlign: 'center', fontSize: cellFont }}>{student.id}</Table.Td>
@@ -408,7 +416,9 @@ export default function ViewScores() {
                             {student.name || '-'}
                           </Table.Td>
                           <Table.Td style={{ textAlign: 'center', fontSize: cellFont }}>{student.gender || '-'}</Table.Td>
-                          <Table.Td style={{ textAlign: 'center', fontSize: cellFont }}>{student.grade || '-'}</Table.Td>
+                          {courseLabels.showGradeField && (
+                            <Table.Td style={{ textAlign: 'center', fontSize: cellFont }}>{student.grade || '-'}</Table.Td>
+                          )}
                           <Table.Td style={{ textAlign: 'center', fontSize: cellFont }}>
                             {student.course || student.grade || '-'}
                           </Table.Td>

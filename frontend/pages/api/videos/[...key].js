@@ -66,10 +66,6 @@ function loadEnvConfig() {
 }
 
 const envConfig = loadEnvConfig();
-const accountId = envConfig.CLOUDFLARE_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID;
-const accessKeyId = envConfig.R2_ACCESS_KEY_ID || process.env.R2_ACCESS_KEY_ID;
-const secretAccessKey = envConfig.R2_SECRET_ACCESS_KEY || process.env.R2_SECRET_ACCESS_KEY;
-const bucketName = envConfig.R2_BUCKET_NAME || process.env.R2_BUCKET_NAME;
 
 const httpsAgent = new https.Agent({
   keepAlive: true,
@@ -88,19 +84,46 @@ const httpAgent = new http.Agent({
   scheduling: 'lifo',
 });
 
-const client = new S3Client({
-  region: 'auto',
-  endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
-  credentials: { accessKeyId, secretAccessKey },
-  forcePathStyle: true,
-  requestHandler: new NodeHttpHandler({
-    httpAgent,
-    httpsAgent,
-    // CONNECT timeout only. requestTimeout:0 so multi-hour bodies are not aborted.
-    connectionTimeout: 15_000,
-    requestTimeout: 0,
-  }),
-});
+/** Recreate S3 client when R2 credentials change — no Next restart required. */
+let r2Client = null;
+let r2BucketName = '';
+let r2CredFingerprint = '';
+
+function getLiveR2() {
+  const live = loadEnvConfig();
+  const accountId = live.CLOUDFLARE_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID;
+  const accessKeyId = live.R2_ACCESS_KEY_ID || process.env.R2_ACCESS_KEY_ID;
+  const secretAccessKey = live.R2_SECRET_ACCESS_KEY || process.env.R2_SECRET_ACCESS_KEY;
+  const bucketName = live.R2_BUCKET_NAME || process.env.R2_BUCKET_NAME;
+  if (!accountId || !accessKeyId || !secretAccessKey || !bucketName) {
+    return { client: null, bucketName: null, envConfig: live };
+  }
+  const fp = `${accountId}|${accessKeyId}|${String(secretAccessKey || '').slice(0, 8)}|${bucketName}`;
+  if (!r2Client || r2CredFingerprint !== fp) {
+    r2Client = new S3Client({
+      region: 'auto',
+      endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+      credentials: { accessKeyId, secretAccessKey },
+      forcePathStyle: true,
+      requestHandler: new NodeHttpHandler({
+        httpAgent,
+        httpsAgent,
+        connectionTimeout: 15_000,
+        requestTimeout: 0,
+      }),
+    });
+    r2CredFingerprint = fp;
+    r2BucketName = bucketName;
+  }
+  return { client: r2Client, bucketName: r2BucketName, envConfig: live };
+}
+
+function getStreamTimeouts(liveEnv = loadEnvConfig()) {
+  return {
+    zoomMs: readEnvInt(liveEnv, 'ZOOM_STREAM_CONNECT_TIMEOUT_MS', 45_000),
+    googleMs: readEnvInt(liveEnv, 'GOOGLE_STREAM_CONNECT_TIMEOUT_MS', 45_000),
+  };
+}
 
 const ZOOM_STREAM_CONNECT_TIMEOUT_MS = readEnvInt(
   envConfig,
@@ -617,8 +640,9 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── R2 config check ──────────────────────────────────────────────────────
-  if (!accountId || !accessKeyId || !secretAccessKey || !bucketName) {
+  // ── R2 config check (live env — credentials refresh without restart) ─────
+  const { client, bucketName } = getLiveR2();
+  if (!client || !bucketName) {
     return res.status(500).json({ error: 'R2 configuration is missing' });
   }
 

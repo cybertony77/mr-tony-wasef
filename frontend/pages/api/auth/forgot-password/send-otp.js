@@ -4,48 +4,11 @@ import { google } from 'googleapis';
 import fs from 'fs';
 import path from 'path';
 import {
-  loadSystemBackgroundFromEnv,
-  parseGradientColorStops,
-  parseSystemBackground,
-} from '../../../../lib/systemColors';
-
-// Load environment variables from env.config
-function loadEnvConfig() {
-  try {
-    const candidates = [
-      path.join(process.cwd(), '..', 'env.config'),
-      path.join(process.cwd(), 'env.config'),
-    ];
-    const envPath = candidates.find((p) => fs.existsSync(p));
-    if (!envPath) return {};
-
-    const envContent = fs.readFileSync(envPath, 'utf8');
-    const envVars = {};
-    
-    envContent.split(/\r?\n/).forEach(line => {
-      const trimmed = line.trim();
-      if (trimmed && !trimmed.startsWith('#')) {
-        const index = trimmed.indexOf('=');
-        if (index !== -1) {
-          const key = trimmed.substring(0, index).trim();
-          let value = trimmed.substring(index + 1).trim();
-          if (
-            (value.startsWith('"') && value.endsWith('"')) ||
-            (value.startsWith("'") && value.endsWith("'"))
-          ) {
-            value = value.slice(1, -1);
-          }
-          envVars[key] = value;
-        }
-      }
-    });
-    
-    return envVars;
-  } catch (error) {
-    console.log('⚠️  Could not read env.config, using process.env as fallback');
-    return {};
-  }
-}
+  loadEnvConfig,
+  resolveEmailTheme,
+  resolveEmailBrand,
+  buildBrandedEmailShell,
+} from '../../lib/emailShell';
 
 const envConfig = loadEnvConfig();
 const MONGO_URI = envConfig.MONGO_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/topphysics';
@@ -53,16 +16,6 @@ const DB_NAME = envConfig.DB_NAME || process.env.DB_NAME || 'topphysics';
 const EMAIL_USER = envConfig.EMAIL_USER || process.env.EMAIL_USER;
 const GOOGLE_API_CREDENTIALS_PATH = envConfig.GOOGLE_API_CREDENTIALS_PATH || process.env.GOOGLE_API_CREDENTIALS_PATH;
 const GOOGLE_REFRESH_TOKEN = envConfig.GOOGLE_REFRESH_TOKEN || process.env.GOOGLE_REFRESH_TOKEN;
-const SYSTEM_DOMAIN = envConfig.SYSTEM_DOMAIN || process.env.SYSTEM_DOMAIN || 'https://demosys.myvnc.com';
-const SYSTEM_NAME = envConfig.SYSTEM_NAME || process.env.SYSTEM_NAME || 'Demo Attendance System';
-
-function resolveOtpEmailTheme() {
-  const raw = envConfig.SYSTEM_COLORS || process.env.SYSTEM_COLORS || '';
-  const background = parseSystemBackground(raw) || loadSystemBackgroundFromEnv();
-  const { start: primary, end: accent } = parseGradientColorStops(background);
-  const headerStyle = `background-color:${primary};background-image:${background};background:${background};`;
-  return { background, primary, accent, headerStyle };
-}
 
 function getLogoAttachment() {
   const candidates = [
@@ -169,8 +122,6 @@ function createEmailMessage(from, to, subject, html) {
       `--${boundary}--`,
     ].join('\r\n');
   } else {
-    const logoUrl = `${String(SYSTEM_DOMAIN).replace(/\/$/, '')}/logo.png`;
-    const htmlWithUrl = html.replace(/src="cid:system_logo"/gi, `src="${logoUrl}"`);
     message = [
       `From: ${from}`,
       `To: ${to}`,
@@ -178,7 +129,7 @@ function createEmailMessage(from, to, subject, html) {
       `MIME-Version: 1.0`,
       `Content-Type: text/html; charset=utf-8`,
       ``,
-      htmlWithUrl,
+      html,
     ].join('\r\n');
   }
 
@@ -306,33 +257,9 @@ export default async function handler(req, res) {
     console.log('📧 Using email from:', EMAIL_USER);
 
     try {
-      const { primary, accent, headerStyle } = resolveOtpEmailTheme();
-      const domainLabel = String(SYSTEM_DOMAIN || '').replace(/^https?:\/\//, '');
-      const emailHTML = `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Password Reset OTP</title>
-</head>
-<body style="margin:0;padding:0;background-color:#f3f6fb;font-family:Arial,Helvetica,sans-serif;-webkit-font-smoothing:antialiased;">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f3f6fb;padding:36px 14px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:560px;background-color:#ffffff;border-radius:18px;overflow:hidden;border:1px solid #e4ebf3;">
-          <tr>
-            <td style="height:6px;${headerStyle}font-size:0;line-height:0;">&nbsp;</td>
-          </tr>
-          <tr>
-            <td style="${headerStyle}padding:30px 28px 26px 28px;text-align:center;">
-              <img src="cid:system_logo" alt="${SYSTEM_NAME}" width="92" height="92" style="width:92px;height:92px;border-radius:18px;background:#ffffff;object-fit:contain;display:block;margin:0 auto 16px auto;border:3px solid rgba(255,255,255,0.95);" />
-              <div style="color:#ffffff;font-size:22px;font-weight:800;letter-spacing:0.2px;line-height:1.25;text-shadow:0 1px 2px rgba(0,0,0,0.12);">${SYSTEM_NAME}</div>
-              <div style="display:inline-block;margin-top:12px;padding:7px 14px;border-radius:999px;background:rgba(255,255,255,0.22);color:#ffffff;font-size:12px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;">Password Reset</div>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color:aliceblue;padding:34px 30px 10px 30px;">
+      const { primary, accent, headerStyle } = resolveEmailTheme();
+      const { systemName, systemDomain } = resolveEmailBrand();
+      const bodyHtml = `
               <p style="margin:0 0 8px 0;color:#0f172a;font-size:20px;font-weight:800;">Hi ${userName},</p>
               <p style="margin:0 0 26px 0;color:#526277;font-size:15px;line-height:1.7;">
                 Enter this one-time code to reset your password. Keep it private and use it only on our official reset page.
@@ -371,43 +298,18 @@ export default async function handler(req, res) {
                 If you did not request a password reset, you can safely ignore this email. Your account stays secure.
               </p>
               <p style="margin:0;color:#0f172a;font-size:14px;font-weight:700;">Best regards,</p>
-              <p style="margin:4px 0 0 0;color:#526277;font-size:14px;">${SYSTEM_NAME} Support Team</p>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color:aliceblue;padding:22px 28px 28px 28px;text-align:center;border-top:1px solid #d7e3ef;">
-              <div style="color:#0f172a;font-size:16px;font-weight:800;margin-bottom:6px;">${SYSTEM_NAME}</div>
-              <a href="${SYSTEM_DOMAIN}" style="color:${primary};font-size:13px;text-decoration:none;font-weight:700;">${domainLabel}</a>
-              <div style="margin:18px 0 0 0;">
-                <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center" style="margin:0 auto;">
-                  <tr>
-                    <td style="padding:0 4px;">
-                      <a href="${SYSTEM_DOMAIN}/contact_assistants" style="display:inline-block;padding:10px 16px;border-radius:10px;border:1.5px solid #cbd5e1;background:#ffffff;color:#0f172a;font-size:13px;font-weight:800;text-decoration:none;line-height:1.2;">
-                        Contact Assistants
-                      </a>
-                    </td>
-                    <td style="padding:0 8px;color:#94a3b8;font-size:16px;font-weight:700;vertical-align:middle;">•</td>
-                    <td style="padding:0 4px;">
-                      <a href="${SYSTEM_DOMAIN}/contact_developer" style="display:inline-block;padding:10px 16px;border-radius:10px;border:1.5px solid #cbd5e1;background:#ffffff;color:#0f172a;font-size:13px;font-weight:800;text-decoration:none;line-height:1.2;">
-                        Contact Developer
-                      </a>
-                    </td>
-                  </tr>
-                </table>
-              </div>
-              <p style="margin:16px 0 0 0;color:#94a3b8;font-size:11px;line-height:1.55;">
-                This is an automated message. Please do not reply directly to this email.
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>
+              <p style="margin:4px 0 0 0;color:#526277;font-size:14px;">${systemName} Support Team</p>
       `;
-      const from = `"${SYSTEM_NAME}" <${EMAIL_USER}>`;
+      const emailHTML = buildBrandedEmailShell({
+        badge: 'Password Reset',
+        bodyHtml,
+        systemName,
+        systemDomain,
+        headerStyle,
+        primary,
+        accent,
+      });
+      const from = `"${systemName}" <${EMAIL_USER}>`;
       const message = createEmailMessage(from, user.email, "Password Reset OTP Code", emailHTML);
       
       const response = await gmail.users.messages.send({

@@ -7,6 +7,7 @@ import CourseTypeSelect from './CourseTypeSelect';
 import CenterSelect from './CenterSelect';
 import { useStudentsPaginated } from '../lib/api/students';
 import { parseStudentsCsv, studentsCsvFromIds } from '../lib/certificatesUtils';
+import { sortStudentsByName } from '../lib/sortStudentsByName';
 
 const SEARCH_PLACEHOLDER = 'Search by ID, Name or Student Phone';
 
@@ -88,7 +89,10 @@ export default function CertificateStudentsSelect({ value = '', onChange, error 
     sortOrder: 'asc',
   });
 
-  const students = data?.data || data?.students || [];
+  const students = useMemo(
+    () => sortStudentsByName(data?.data || data?.students || []),
+    [data]
+  );
   const pagination = data?.pagination || {
     currentPage: 1,
     totalPages: 1,

@@ -125,7 +125,12 @@ export default async function handler(req, res) {
     // Build attendance data (same schema as scan page / online sessions)
     const now = new Date();
     const attendanceDateOnly = formatDateEgypt(now);
-    const attendanceString = formatEgyptAttendance(now, 'Online');
+    const attendanceString = formatEgyptAttendance(now, 'Online', {
+      includeTime: !(
+        (loadEnvConfig().NATIONAL_SYSTEM === 'true') ||
+        process.env.NATIONAL_SYSTEM === 'true'
+      ),
+    });
 
     const PAYMENT_SYSTEM_ENABLED = isPaymentSystemEnabled();
     const payment = normalizePayment(student.payment);

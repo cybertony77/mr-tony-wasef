@@ -6,6 +6,7 @@ import { useStudents, useStudent } from '../../../lib/api/students';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import apiClient from '../../../lib/axios';
 import { useNationalSystem, getCourseFieldLabels } from '../../../lib/api/system';
+import { sortStudentsByName } from '../../../lib/sortStudentsByName';
 
 export default function ChangeStudentAccountPassword() {
   const isNational = useNationalSystem();
@@ -178,7 +179,7 @@ export default function ChangeStudentAccountPassword() {
           setSearchId(matchingStudents[0].id.toString());
           setStudentId(matchingStudents[0].id.toString());
         } else if (matchingStudents.length > 1) {
-          setSearchResults(matchingStudents);
+          setSearchResults(sortStudentsByName(matchingStudents));
           setShowSearchResults(true);
           setSearchError(`❌ Found ${matchingStudents.length} students. Please select one.`);
         } else {

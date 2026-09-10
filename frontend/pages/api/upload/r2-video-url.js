@@ -7,8 +7,8 @@ import {
   getR2Config,
 } from '../../../lib/r2Server';
 
-/** 6h expiry with client-side smart refresh before expiration. */
-const PRESIGN_GET_EXPIRES_SEC = 6 * 60 * 60; // 6 hours
+/** Max SigV4 presign (7d). Client renews before expiry so playback never stalls. */
+const PRESIGN_GET_EXPIRES_SEC = 7 * 24 * 60 * 60; // 7 days
 
 function getKeyFromRequest(req) {
   if (req.method === 'GET') {

@@ -378,7 +378,12 @@ export default async function handler(req, res) {
       const lesson = session.lesson;
       if (lesson && lesson.trim()) {
         const attendanceDate = formatDate(new Date());
-        const attendanceString = formatEgyptAttendance(new Date(), 'Online');
+        const attendanceString = formatEgyptAttendance(new Date(), 'Online', {
+          includeTime: !(
+            (loadEnvConfig().NATIONAL_SYSTEM === 'true') ||
+            process.env.NATIONAL_SYSTEM === 'true'
+          ),
+        });
         const lessonData = getStudentLesson(student.lessons, lesson);
         const preserveCenterAttendance =
           effectivePaymentState === 'free_if_attended_in_center' &&

@@ -96,7 +96,9 @@ export default function R2VideoPlayer({
 
       clearRefreshTimer();
       if (expiresIn > 0) {
-        const refreshAfterMs = Math.max(60 * 1000, (expiresIn - 5 * 60) * 1000);
+        // Renew well before expiry (at 80% of TTL, min 1 min early, max 12h early)
+        const skewSec = Math.min(12 * 60 * 60, Math.max(60, Math.floor(expiresIn * 0.2)));
+        const refreshAfterMs = Math.max(60 * 1000, (expiresIn - skewSec) * 1000);
         refreshTimerRef.current = setTimeout(() => {
           refreshPresignedUrl(true);
         }, refreshAfterMs);
@@ -151,6 +153,20 @@ export default function R2VideoPlayer({
       clearRefreshTimer();
     };
   }, [r2Key, videoApiKey, refreshPresignedUrl, clearRefreshTimer]);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && videoApiKey && currentUrlRef.current) {
+        refreshPresignedUrl(true);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, [videoApiKey, refreshPresignedUrl]);
 
   const handleRetry = useCallback(() => {
     urlErrorRetryRef.current = 0;

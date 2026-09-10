@@ -10,6 +10,7 @@ import QRScanner from "../../components/QRScanner";
 import { useStudents, useStudent, useToggleAttendance, useUpdateHomework, useUpdateHomeworkDegree, useUpdateQuizGrade, useUpdateWeekComment } from "../../lib/api/students";
 import { useSystemConfig, useNationalSystem, getCourseFieldLabels } from "../../lib/api/system";
 import { getStudentLesson } from "../../lib/studentLessons";
+import { sortStudentsByName } from '../../lib/sortStudentsByName';
 
 // Helper to extract student ID from QR text (URL or plain number)
 function extractStudentId(qrText) {
@@ -280,7 +281,7 @@ export default function QR() {
           setSearchId(foundStudent.id.toString());
           setStudentId(foundStudent.id.toString());
         } else if (phoneMatches.length > 1) {
-          setSearchResults(phoneMatches);
+          setSearchResults(sortStudentsByName(phoneMatches));
           setShowSearchResults(true);
           setError(`Found ${phoneMatches.length} students. Please select one.`);
         } else {
@@ -307,7 +308,7 @@ export default function QR() {
           setStudentId(foundStudent.id.toString());
         } else if (matchingStudents.length > 1) {
           // Multiple matches, show selection
-          setSearchResults(matchingStudents);
+          setSearchResults(sortStudentsByName(matchingStudents));
           setShowSearchResults(true);
           setError(`Found ${matchingStudents.length} students. Please select one.`);
         } else {

@@ -11,6 +11,7 @@ import CourseSelect from '../../../../components/CourseSelect';
 import CourseTypeSelect from '../../../../components/CourseTypeSelect';
 import CenterSelect from '../../../../components/CenterSelect';
 import AccountStateSelect from '../../../../components/AccountStateSelect';
+import MaterialPaymentStateSelect from '../../../../components/MaterialPaymentStateSelect';
 const PdfViewerModal = dynamic(() => import('../../../../components/PdfViewerModal'), { ssr: false });
 import apiClient from '../../../../lib/axios';
 import { downloadFileUrl } from '../../../../lib/downloadFileUrl';
@@ -56,6 +57,7 @@ export default function MaterialPage() {
   const [courseOpen, setCourseOpen] = useState(false);
   const [courseTypeOpen, setCourseTypeOpen] = useState(false);
   const [centerOpen, setCenterOpen] = useState(false);
+  const [paymentOpen, setPaymentOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['materials'],
@@ -132,17 +134,17 @@ export default function MaterialPage() {
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             <div style={{ flex: 1, minWidth: 180 }}>
               <label style={{ display: 'block', marginBottom: 8, fontWeight: 600 }}>{courseLabels.filterByCourse}</label>
-              <CourseSelect selectedGrade={filterCourse} onGradeChange={setFilterCourse} showAllOption={true} isOpen={courseOpen} onToggle={() => { setCourseOpen(!courseOpen); setCourseTypeOpen(false); setCenterOpen(false); }} onClose={() => setCourseOpen(false)} />
+              <CourseSelect selectedGrade={filterCourse} onGradeChange={setFilterCourse} showAllOption={true} isOpen={courseOpen} onToggle={() => { setCourseOpen(!courseOpen); setCourseTypeOpen(false); setCenterOpen(false); setPaymentOpen(false); }} onClose={() => setCourseOpen(false)} />
             </div>
             {courseLabels.showCourseType && (
 <div style={{ flex: 1, minWidth: 180 }}>
               <label style={{ display: 'block', marginBottom: 8, fontWeight: 600 }}>Filter by Course Type</label>
-              <CourseTypeSelect selectedCourseType={filterCourseType} onCourseTypeChange={setFilterCourseType} isOpen={courseTypeOpen} onToggle={() => { setCourseTypeOpen(!courseTypeOpen); setCourseOpen(false); setCenterOpen(false); }} onClose={() => setCourseTypeOpen(false)} />
+              <CourseTypeSelect selectedCourseType={filterCourseType} onCourseTypeChange={setFilterCourseType} isOpen={courseTypeOpen} onToggle={() => { setCourseTypeOpen(!courseTypeOpen); setCourseOpen(false); setCenterOpen(false); setPaymentOpen(false); }} onClose={() => setCourseTypeOpen(false)} />
             </div>
 )}
             <div style={{ flex: 1, minWidth: 180 }}>
               <label style={{ display: 'block', marginBottom: 8, fontWeight: 600 }}>Filter by Center</label>
-              <CenterSelect selectedCenter={filterCenter} onCenterChange={setFilterCenter} required={false} isOpen={centerOpen} onToggle={() => { setCenterOpen(!centerOpen); setCourseOpen(false); setCourseTypeOpen(false); }} onClose={() => setCenterOpen(false)} />
+              <CenterSelect selectedCenter={filterCenter} onCenterChange={setFilterCenter} required={false} isOpen={centerOpen} onToggle={() => { setCenterOpen(!centerOpen); setCourseOpen(false); setCourseTypeOpen(false); setPaymentOpen(false); }} onClose={() => setCenterOpen(false)} />
             </div>
             <div style={{ flex: 1, minWidth: 180 }}>
               <label style={{ display: 'block', marginBottom: 8, fontWeight: 600 }}>Filter by Material State</label>
@@ -150,15 +152,22 @@ export default function MaterialPage() {
             </div>
             <div style={{ flex: 1, minWidth: 180 }}>
               <label style={{ display: 'block', marginBottom: 8, fontWeight: 600 }}>Filter by Payment State</label>
-              <select
-                value={filterPaymentState}
-                onChange={(e) => setFilterPaymentState(e.target.value)}
-                style={{ width: '100%', padding: '12px 16px', border: '2px solid #e9ecef', borderRadius: 10, fontSize: '1rem', background: '#fff' }}
-              >
-                <option value="">All Payment States</option>
-                <option value="free">Free</option>
-                <option value="paid">Paid</option>
-              </select>
+              <MaterialPaymentStateSelect
+                value={filterPaymentState || null}
+                onChange={(s) => setFilterPaymentState(s || '')}
+                label="Payment State"
+                placeholder="Select Payment State"
+                allowClear
+                style={{ marginBottom: 0, hideLabel: true }}
+                isOpen={paymentOpen}
+                onToggle={() => {
+                  setPaymentOpen((o) => !o);
+                  setCourseOpen(false);
+                  setCourseTypeOpen(false);
+                  setCenterOpen(false);
+                }}
+                onClose={() => setPaymentOpen(false)}
+              />
             </div>
           </div>
         </div>

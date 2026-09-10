@@ -4,15 +4,19 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../../lib/axios';
 import { useProfile } from '../../../lib/api/auth';
 import { useStudents } from '../../../lib/api/students';
+import { useNationalSystem, getCourseFieldLabels } from '../../../lib/api/system';
 import Title from '../../../components/Title';
 import LoadingSkeleton from '../../../components/LoadingSkeleton';
 import Image from 'next/image';
 import { IconPlus, IconMinus } from '@tabler/icons-react';
 import { ActionIcon, Button } from '@mantine/core';
+import { sortStudentsByName } from '../../../lib/sortStudentsByName';
 
 export default function ManageStudentScore() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const isNational = useNationalSystem();
+  const courseLabels = getCourseFieldLabels(isNational);
   const { data: profile, isLoading: profileLoading } = useProfile();
   const [accessDenied, setAccessDenied] = useState(false);
   const [studentId, setStudentId] = useState("");
@@ -36,7 +40,7 @@ export default function ManageStudentScore() {
   });
 
   // Fetch student with rankings
-  const { data: studentData, isLoading: studentLoading, refetch: refetchStudent } = useQuery({
+  const { data: studentData, isLoading: studentLoading } = useQuery({
     queryKey: ['student-with-rankings', searchId],
     queryFn: async () => {
       if (!searchId) return null;
@@ -63,7 +67,7 @@ export default function ManageStudentScore() {
     enabled: !!searchId,
   });
 
-  // Update score mutation — goes through scoring history
+  // Update score mutation — optimistic UI, no blocking refetch
   const updateScoreMutation = useMutation({
     mutationFn: async ({ studentId, delta }) => {
       const response = await apiClient.post('/api/scoring/calculate', {
@@ -81,10 +85,31 @@ export default function ManageStudentScore() {
       });
       return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries(['student-with-rankings', searchId]);
-      queryClient.invalidateQueries(['scoring-view-scores']);
-      queryClient.invalidateQueries(['scoring-history']);
+    onMutate: async ({ delta }) => {
+      setError('');
+      await queryClient.cancelQueries({ queryKey: ['student-with-rankings', searchId] });
+      const previous = queryClient.getQueryData(['student-with-rankings', searchId]);
+      queryClient.setQueryData(['student-with-rankings', searchId], (old) => {
+        if (!old) return old;
+        return { ...old, score: (old.score || 0) + delta };
+      });
+      return { previous };
+    },
+    onSuccess: (data) => {
+      if (data?.newScore !== undefined && data?.newScore !== null) {
+        queryClient.setQueryData(['student-with-rankings', searchId], (old) => {
+          if (!old) return old;
+          return { ...old, score: data.newScore };
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ['scoring-view-scores'] });
+      queryClient.invalidateQueries({ queryKey: ['scoring-history'] });
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous !== undefined) {
+        queryClient.setQueryData(['student-with-rankings', searchId], context.previous);
+      }
+      setError(`Failed to update ${courseLabels.scoreLower}. Please try again.`);
     },
   });
 
@@ -116,7 +141,7 @@ export default function ManageStudentScore() {
           setStudentId(foundStudent.id.toString());
         } else if (matchingStudents.length > 1) {
           // Multiple matches, show selection
-          setSearchResults(matchingStudents);
+          setSearchResults(sortStudentsByName(matchingStudents));
           setShowSearchResults(true);
           setError(`Found ${matchingStudents.length} students. Please select one.`);
         } else {
@@ -148,20 +173,12 @@ export default function ManageStudentScore() {
     setError("");
   };
 
-  const handleScoreChange = async (delta) => {
+  const handleScoreChange = (delta) => {
     if (!studentData) return;
-    
-    try {
-      await updateScoreMutation.mutateAsync({
-        studentId: studentData.id,
-        delta,
-      });
-      
-      await refetchStudent();
-    } catch (error) {
-      console.error('Error updating score:', error);
-      setError('Failed to update score. Please try again.');
-    }
+    updateScoreMutation.mutate({
+      studentId: studentData.id,
+      delta,
+    });
   };
 
   if (profileLoading) {
@@ -582,7 +599,11 @@ export default function ManageStudentScore() {
                     <span style={{ fontFamily: 'monospace' }}>{student.phone || 'N/A'}</span>
                   </div>
                   <div style={{ fontSize: "0.9rem", color: "#6c757d", marginTop: 2 }}>
-                    {[student.course, student.courseType, student.main_center].filter(Boolean).join(' • ')}
+                    {[
+                      student.course,
+                      courseLabels.showCourseType ? student.courseType : null,
+                      student.main_center,
+                    ].filter(Boolean).join(' • ')}
                   </div>
                 </button>
               ))}
@@ -620,18 +641,22 @@ export default function ManageStudentScore() {
 
             {/* Student Info - 2 columns per row */}
             <div className="student-details">
+              {courseLabels.showGradeField && (
+                <div className="detail-item">
+                  <div className="detail-label">Grade</div>
+                  <div className="detail-value">{studentData.grade || '-'}</div>
+                </div>
+              )}
               <div className="detail-item">
-                <div className="detail-label">Grade</div>
-                <div className="detail-value">{studentData.grade || '-'}</div>
-              </div>
-              <div className="detail-item">
-                <div className="detail-label">Course</div>
+                <div className="detail-label">{courseLabels.course}</div>
                 <div className="detail-value">{studentData.course || studentData.grade || '-'}</div>
               </div>
-              <div className="detail-item">
-                <div className="detail-label">Course Type</div>
-                <div className="detail-value">{studentData.courseType || '-'}</div>
-              </div>
+              {courseLabels.showCourseType && (
+                <div className="detail-item">
+                  <div className="detail-label">Course Type</div>
+                  <div className="detail-value">{studentData.courseType || '-'}</div>
+                </div>
+              )}
               <div className="detail-item">
                 <div className="detail-label">Rank (Main Center)</div>
                 <div className="detail-value">
@@ -641,7 +666,7 @@ export default function ManageStudentScore() {
                 </div>
               </div>
               <div className="detail-item">
-                <div className="detail-label">Rank (Course)</div>
+                <div className="detail-label">Rank ({courseLabels.course})</div>
                 <div className="detail-value">
                   {studentData.courseRank && studentData.courseTotal 
                     ? `${studentData.courseRank} / ${studentData.courseTotal}`
@@ -652,10 +677,10 @@ export default function ManageStudentScore() {
 
             {/* Score Control Section */}
             <div className="score-section">
-              <div className="score-title">Score Control</div>
+              <div className="score-title">{courseLabels.score} Control</div>
               
               <div className="score-display">
-                <div className="score-label">Current Score</div>
+                <div className="score-label">Current {courseLabels.score}</div>
                 <div className="score-value">
                   {studentData.score !== null && studentData.score !== undefined ? studentData.score : 0}
                 </div>
@@ -667,42 +692,42 @@ export default function ManageStudentScore() {
                   <button
                     className="score-btn score-btn-positive score-btn-small"
                     onClick={() => handleScoreChange(1)}
-                    disabled={updateScoreMutation.isLoading}
+                    type="button"
                   >
                     +1
                   </button>
                   <button
                     className="score-btn score-btn-positive"
                     onClick={() => handleScoreChange(10)}
-                    disabled={updateScoreMutation.isLoading}
+                    type="button"
                   >
                     +10
                   </button>
                   <button
                     className="score-btn score-btn-positive"
                     onClick={() => handleScoreChange(20)}
-                    disabled={updateScoreMutation.isLoading}
+                    type="button"
                   >
                     +20
                   </button>
                   <button
                     className="score-btn score-btn-positive"
                     onClick={() => handleScoreChange(30)}
-                    disabled={updateScoreMutation.isLoading}
+                    type="button"
                   >
                     +30
                   </button>
                   <button
                     className="score-btn score-btn-positive"
                     onClick={() => handleScoreChange(40)}
-                    disabled={updateScoreMutation.isLoading}
+                    type="button"
                   >
                     +40
                   </button>
                   <button
                     className="score-btn score-btn-positive score-btn-large"
                     onClick={() => handleScoreChange(50)}
-                    disabled={updateScoreMutation.isLoading}
+                    type="button"
                   >
                     +50
                   </button>
@@ -720,53 +745,47 @@ export default function ManageStudentScore() {
                   <button
                     className="score-btn score-btn-negative score-btn-small"
                     onClick={() => handleScoreChange(-1)}
-                    disabled={updateScoreMutation.isLoading}
+                    type="button"
                   >
                     -1
                   </button>
                   <button
                     className="score-btn score-btn-negative"
                     onClick={() => handleScoreChange(-10)}
-                    disabled={updateScoreMutation.isLoading}
+                    type="button"
                   >
                     -10
                   </button>
                   <button
                     className="score-btn score-btn-negative"
                     onClick={() => handleScoreChange(-20)}
-                    disabled={updateScoreMutation.isLoading}
+                    type="button"
                   >
                     -20
                   </button>
                   <button
                     className="score-btn score-btn-negative"
                     onClick={() => handleScoreChange(-30)}
-                    disabled={updateScoreMutation.isLoading}
+                    type="button"
                   >
                     -30
                   </button>
                   <button
                     className="score-btn score-btn-negative"
                     onClick={() => handleScoreChange(-40)}
-                    disabled={updateScoreMutation.isLoading}
+                    type="button"
                   >
                     -40
                   </button>
                   <button
                     className="score-btn score-btn-negative score-btn-large"
                     onClick={() => handleScoreChange(-50)}
-                    disabled={updateScoreMutation.isLoading}
+                    type="button"
                   >
                     -50
                   </button>
                 </div>
               </div>
-              
-              {updateScoreMutation.isLoading && (
-                <div style={{ textAlign: 'center', marginTop: '20px', color: '#6c757d', fontWeight: 600 }}>
-                  Updating score...
-                </div>
-              )}
             </div>
           </div>
         )}

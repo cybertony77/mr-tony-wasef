@@ -6,6 +6,7 @@ import { useStudents, useStudent } from '../../../lib/api/students';
 import apiClient from '../../../lib/axios';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { useNationalSystem, getCourseFieldLabels } from '../../../lib/api/system';
+import { sortStudentsByName } from '../../../lib/sortStudentsByName';
 
 export default function DeleteStudentAccount() {
   const isNational = useNationalSystem();
@@ -115,7 +116,7 @@ export default function DeleteStudentAccount() {
           setSearchId(matchingStudents[0].id.toString());
           setStudentId(matchingStudents[0].id.toString());
         } else if (matchingStudents.length > 1) {
-          setSearchResults(matchingStudents);
+          setSearchResults(sortStudentsByName(matchingStudents));
           setShowSearchResults(true);
           setError(`❌ Found ${matchingStudents.length} students. Please select one.`);
         } else {

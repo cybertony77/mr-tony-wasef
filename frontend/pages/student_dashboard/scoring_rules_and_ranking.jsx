@@ -3,7 +3,7 @@ import { useRouter } from "next/router";
 import { useQuery } from '@tanstack/react-query';
 import { useProfile } from '../../lib/api/auth';
 import { useStudent } from '../../lib/api/students';
-import { useSystemConfig, isFeatureEnabled } from '../../lib/api/system';
+import { useSystemConfig, isFeatureEnabled, useNationalSystem, getCourseFieldLabels } from '../../lib/api/system';
 import apiClient from '../../lib/axios';
 import Title from '../../components/Title';
 import NeedHelp from '../../components/NeedHelp';
@@ -59,6 +59,8 @@ export default function ScoringRulesAndRanking() {
   } = useSystemConfig();
   const isScoringEnabled = isFeatureEnabled(systemConfig, 'scoring_system');
   const isMockExamsEnabled = isFeatureEnabled(systemConfig, 'mock_exams');
+  const isNational = useNationalSystem();
+  const courseLabels = getCourseFieldLabels(isNational);
 
   // Get student ID from profile and fetch student data
   const studentId = profile?.id ? profile.id.toString() : null;
@@ -502,7 +504,7 @@ export default function ScoringRulesAndRanking() {
 
         {/* Score Display */}
         <div className="score-display-card">
-          <div className="score-label">Your Current Score</div>
+          <div className="score-label">Your Current {courseLabels.score}</div>
           <div className="score-value">
             {studentData?.score !== null && studentData?.score !== undefined ? studentData.score : 0}
           </div>

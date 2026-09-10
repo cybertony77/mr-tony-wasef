@@ -39,8 +39,13 @@ export function formatEgyptDateTime(input = new Date()) {
   return `${day}/${month}/${year} at ${hour}:${minute} ${period}`;
 }
 
-/** Format attendance as "DD/MM/YYYY in Center at h:mm AM/PM". */
-export function formatEgyptAttendance(input = new Date(), center = 'Online') {
+/**
+ * Format attendance in Africa/Cairo.
+ * - With time (default): "DD/MM/YYYY in Center at h:mm AM/PM"
+ * - Without time: "DD/MM/YYYY in Center" (NATIONAL_SYSTEM)
+ */
+export function formatEgyptAttendance(input = new Date(), center = 'Online', options = {}) {
+  const includeTime = options?.includeTime !== false;
   const date = input instanceof Date ? input : new Date(input);
   if (Number.isNaN(date.getTime())) return '—';
   const formatter = new Intl.DateTimeFormat('en-US', {
@@ -48,13 +53,15 @@ export function formatEgyptAttendance(input = new Date(), center = 'Online') {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
+    ...(includeTime
+      ? { hour: 'numeric', minute: '2-digit', hour12: true }
+      : {}),
   });
   const parts = formatter.formatToParts(date);
   const get = (type) => parts.find((part) => part.type === type)?.value || '';
-  return `${get('day')}/${get('month')}/${get('year')} in ${center || 'Unknown Center'} at ${get('hour').replace(/^0/, '')}:${get('minute')} ${get('dayPeriod')}`;
+  const base = `${get('day')}/${get('month')}/${get('year')} in ${center || 'Unknown Center'}`;
+  if (!includeTime) return base;
+  return `${base} at ${get('hour').replace(/^0/, '')}:${get('minute')} ${get('dayPeriod')}`;
 }
 
 /** YYYY-MM-DD for a Date/ISO instant in Africa/Cairo. */

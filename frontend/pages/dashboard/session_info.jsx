@@ -12,7 +12,7 @@ import { IconArrowDownRight, IconArrowUpRight, IconChevronLeft, IconChevronRight
 import { Center, Group, Paper, RingProgress, SimpleGrid, Text } from '@mantine/core';
 import { useRouter } from 'next/router';
 import { useStudents } from '../../lib/api/students';
-import { useSystemConfig, useNationalSystem, getCourseFieldLabels } from '../../lib/api/system';
+import { useSystemConfig, useNationalSystem, getCourseFieldLabels, isFeatureEnabled } from '../../lib/api/system';
 import { getStudentLesson } from '../../lib/studentLessons';
 import LoadingSkeleton from '../../components/LoadingSkeleton';
 import FullPageActionLoader from '../../components/FullPageActionLoader';
@@ -23,6 +23,7 @@ export default function SessionInfo() {
   const courseLabels = getCourseFieldLabels(isNational);
   const isScoringEnabled = systemConfig?.scoring_system === true || systemConfig?.scoring_system === 'true';
   const isPaymentSystemEnabled = systemConfig?.payment_system === true || systemConfig?.payment_system === 'true';
+  const isStudentWaMessageBtnEnabled = isFeatureEnabled(systemConfig, 'student_wa_message_btn');
   
   const containerRef = useRef(null);
   const router = useRouter();
@@ -1259,9 +1260,9 @@ export default function SessionInfo() {
             showMainComment={showComment || showMainComment}
             showWeekComment={showComment || showLessonComment}
             height={300}
-            showStudentWhatsApp={!isNational}
+            showStudentWhatsApp={isStudentWaMessageBtnEnabled}
             showParentWhatsApp={true}
-            showMessageState={!isNational}
+            showMessageState={isStudentWaMessageBtnEnabled}
             showEmail={false}
             showCourse={true}
             showCourseType={true}
@@ -1345,9 +1346,9 @@ export default function SessionInfo() {
             showComment={false}
             showMainComment={true}
             showWeekComment={true}
-            showStudentWhatsApp={!isNational}
+            showStudentWhatsApp={isStudentWaMessageBtnEnabled}
             showParentWhatsApp={true}
-            showMessageState={!isNational}
+            showMessageState={isStudentWaMessageBtnEnabled}
             showEmail={false}
             showCourse={true}
             showCourseType={true}
@@ -1450,10 +1451,10 @@ export default function SessionInfo() {
             showComment={false}
             showMainComment={true}
             showWeekComment={true}
-            showStudentWhatsApp={!isNational}
+            showStudentWhatsApp={isStudentWaMessageBtnEnabled}
             showParentWhatsApp={true}
             showEmail={false}
-            showMessageState={!isNational}
+            showMessageState={isStudentWaMessageBtnEnabled}
             showStatsColumns={true}
             showCourse={true}
             showCourseType={true}

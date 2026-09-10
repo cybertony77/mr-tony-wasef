@@ -34,6 +34,15 @@ import YoutubeEmbedWithProgress from '../components/YoutubeEmbedWithProgress';
 import { useProfile } from '../lib/api/auth';
 import { useSystemConfig } from '../lib/api/system';
 import apiClient from '../lib/axios';
+import SiteSeo from '../components/SiteSeo';
+import {
+  getPublicPageSeo,
+  websiteJsonLd,
+  educationalOrganizationJsonLd,
+  aggregateRatingJsonLd,
+  absoluteMediaUrl,
+  getSiteOrigin,
+} from '../lib/seo';
 import {
   formatPhoneForDB,
   validateEgyptPhone,
@@ -419,11 +428,32 @@ function isValidHttpUrl(value) {
   return /^https?:\/\/\S+$/i.test(v);
 }
 
-export default function MarketingPage() {
+export default function MarketingPage({ seoExtras = null }) {
   const router = useRouter();
   const { data: systemConfig } = useSystemConfig();
   const { data: user } = useProfile();
-  const headerTitle = systemConfig?.name || 'Public Page';
+  const headerTitle = systemConfig?.name || seoExtras?.siteName || 'Public Page';
+  const siteName = systemConfig?.name || seoExtras?.siteName || '';
+  const siteOrigin = systemConfig?.domain || seoExtras?.origin || '';
+  const seoCopy = getPublicPageSeo('/welcome', siteName);
+  const welcomeDescription =
+    seoExtras?.description || seoCopy.description;
+  const logoUrl = absoluteMediaUrl('/logo.png', siteOrigin || getSiteOrigin());
+  const welcomeJsonLd = [
+    websiteJsonLd({ siteName: siteName || headerTitle, origin: getSiteOrigin(siteOrigin) }),
+    educationalOrganizationJsonLd({
+      siteName: siteName || headerTitle,
+      origin: getSiteOrigin(siteOrigin),
+      logoUrl,
+      description: welcomeDescription,
+    }),
+    aggregateRatingJsonLd({
+      siteName: siteName || headerTitle,
+      origin: getSiteOrigin(siteOrigin),
+      ratingValue: seoExtras?.ratingValue,
+      reviewCount: seoExtras?.reviewCount,
+    }),
+  ].filter(Boolean);
 
   const handleMarketingLogoClick = useCallback(() => {
     const role = user?.role || '';
@@ -1218,6 +1248,15 @@ export default function MarketingPage() {
 
   return (
     <>
+      <SiteSeo
+        title={seoCopy.title}
+        description={welcomeDescription}
+        path="/welcome"
+        siteName={siteName || headerTitle}
+        origin={siteOrigin}
+        image="/logo.png"
+        jsonLd={welcomeJsonLd}
+      />
       <MarketingPageLoader active={showWelcomeLoader} label="Welcome" />
       <FullPageActionLoader
         active={hidePageLoader}
@@ -2326,5 +2365,15 @@ export default function MarketingPage() {
       </Box>
     </>
   );
+}
+
+export async function getServerSideProps() {
+  try {
+    const { fetchWelcomeSeoExtras } = await import('../lib/seoEnv.server');
+    const seoExtras = await fetchWelcomeSeoExtras();
+    return { props: { seoExtras } };
+  } catch {
+    return { props: { seoExtras: null } };
+  }
 }
 

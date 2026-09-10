@@ -6,11 +6,14 @@ import { Table, ScrollArea } from '@mantine/core';
 import apiClient from "../lib/axios";
 import styles from '../styles/TableScrollArea.module.css';
 import { useSystemConfig } from "../lib/api/system";
+import SiteSeo from "../components/SiteSeo";
+import { getPublicPageSeo } from "../lib/seo";
 
 export default function ContactAssistants() {
   const router = useRouter();
   const { data: systemConfig } = useSystemConfig();
   const systemName = systemConfig?.name || 'Demo Attendance System';
+  const seoCopy = getPublicPageSeo('/contact_assistants', systemName);
   const [hasToken, setHasToken] = useState(false);
   const [loading, setLoading] = useState(true);
   const [assistants, setAssistants] = useState([]);
@@ -81,6 +84,19 @@ export default function ContactAssistants() {
         justifyContent: "center",
         padding: "20px"
       }}>
+        <SiteSeo
+          title={seoCopy.title}
+          description={seoCopy.description}
+          path="/contact_assistants"
+          keywords={[
+            'contact assistants',
+            systemName,
+            'student support',
+            'technical help',
+          ]}
+          siteName={systemName}
+          origin={systemConfig?.domain}
+        />
         <div style={{
           background: "rgba(255, 255, 255, 0.95)",
           borderRadius: "16px",
@@ -114,6 +130,19 @@ export default function ContactAssistants() {
       minHeight: "100vh", 
       padding: "20px 5px 20px 5px"
     }}>
+      <SiteSeo
+        title={seoCopy.title}
+        description={seoCopy.description}
+        path="/contact_assistants"
+        keywords={[
+          'contact assistants',
+          systemName,
+          'student support',
+          'technical help',
+        ]}
+        siteName={systemName}
+        origin={systemConfig?.domain}
+      />
       <div style={{ 
         maxWidth: 900, 
         margin: "40px auto", 
@@ -124,7 +153,7 @@ export default function ContactAssistants() {
           href={null}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <Image src="/message.svg" alt="Message" width={32} height={32} />
+            <Image src="/message.svg" alt="Contact assistants" width={32} height={32} />
             Contact Assistants
           </div>
         </Title>

@@ -45,11 +45,13 @@ const GOOGLE_STREAM_CONNECT_TIMEOUT_MS = readEnvInt(
 );
 
 export function getGoogleOAuthConfig() {
-  const clientId = envConfig.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || '';
+  // Re-read env each call so credential rotation works without restarting Next.
+  const live = loadEnvConfig();
+  const clientId = live.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || '';
   const clientSecret =
-    envConfig.GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || '';
+    live.GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || '';
   const redirectUri =
-    envConfig.GOOGLE_REDIRECT_URI || process.env.GOOGLE_REDIRECT_URI || '';
+    live.GOOGLE_REDIRECT_URI || process.env.GOOGLE_REDIRECT_URI || '';
   return { clientId, clientSecret, redirectUri };
 }
 
@@ -320,6 +322,15 @@ export async function getGoogleAccessTokenForUser(ownerUserId, forceRefresh = fa
 
   if (forceRefresh) {
     accessTokenCache.delete(ownerKey);
+    // Wait out any in-flight refresh that may have produced a bad token, then mint fresh.
+    if (accessTokenRefreshPromises.has(ownerKey)) {
+      try {
+        await accessTokenRefreshPromises.get(ownerKey);
+      } catch {
+        /* ignore */
+      }
+      accessTokenCache.delete(ownerKey);
+    }
   }
 
   const cached = accessTokenCache.get(ownerKey);
@@ -332,8 +343,7 @@ export async function getGoogleAccessTokenForUser(ownerUserId, forceRefresh = fa
     return cached.token;
   }
 
-  // Always single-flight (including forceRefresh / 401 retry) so N near-expiry
-  // callers share exactly one OAuth refresh.
+  // Always single-flight so N near-expiry callers share exactly one OAuth refresh.
   if (accessTokenRefreshPromises.has(ownerKey)) {
     return accessTokenRefreshPromises.get(ownerKey);
   }

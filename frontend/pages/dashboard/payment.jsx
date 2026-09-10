@@ -4,6 +4,7 @@ import Title from "../../components/Title";
 import { useStudents, useStudent, useSavePayment } from '../../lib/api/students';
 import LoadingSkeleton from '../../components/LoadingSkeleton';
 import Image from 'next/image';
+import { sortStudentsByName } from '../../lib/sortStudentsByName';
 
 export default function Payment() {
   const containerRef = useRef(null);
@@ -57,7 +58,7 @@ export default function Payment() {
             setStudentId(matchingStudents[0].id.toString());
             setStudent(matchingStudents[0]);
           } else if (matchingStudents.length > 1) {
-            setSearchResults(matchingStudents);
+            setSearchResults(sortStudentsByName(matchingStudents));
             setShowSearchResults(true);
             setError(`Found ${matchingStudents.length} students. Please select one.`);
           } else {
@@ -97,7 +98,7 @@ export default function Payment() {
           }
 
           if (matchingStudents.length > 1) {
-            setSearchResults(matchingStudents);
+            setSearchResults(sortStudentsByName(matchingStudents));
             setShowSearchResults(true);
             setError(`Found ${matchingStudents.length} students. Please select one.`);
             return;
@@ -118,7 +119,7 @@ export default function Payment() {
           setStudentId(foundStudent.id.toString());
           setStudent(foundStudent);
         } else if (matchingStudents.length > 1) {
-          setSearchResults(matchingStudents);
+          setSearchResults(sortStudentsByName(matchingStudents));
           setShowSearchResults(true);
           setError(`Found ${matchingStudents.length} students. Please select one.`);
         } else {

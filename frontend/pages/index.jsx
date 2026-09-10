@@ -5,6 +5,10 @@ import { TextInput, PasswordInput, Anchor, Group, Text, Modal } from '@mantine/c
 import { FloatingLabelInput } from '../components/FloatingLabelInput';
 import { useLogin } from '../lib/api/auth';
 import NeedHelp from '../components/NeedHelp';
+import { getDeviceIdentity, persistDeviceIdentity } from '../lib/deviceIdentity';
+import SiteSeo from '../components/SiteSeo';
+import { getPublicPageSeo } from '../lib/seo';
+import { useSystemConfig } from '../lib/api/system';
 
 export default function Login() {
   const [assistant_id, setAssistantId] = useState("");
@@ -21,93 +25,32 @@ export default function Login() {
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [otpVerified, setOtpVerified] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
-  const [devToolsDetected, setDevToolsDetected] = useState(false);
-  const [userRole, setUserRole] = useState(null);
   const [deviceId, setDeviceId] = useState(null);
+  const [deviceFingerprint, setDeviceFingerprint] = useState(null);
   const router = useRouter();
-  
-  // React Query login mutation
+  const { data: systemConfig } = useSystemConfig();
+  const seoCopy = getPublicPageSeo('/', systemConfig?.name);
   const loginMutation = useLogin();
 
-  // Initialize device_id for this browser (only persist later for non-developers)
+  // Recover/create persistent device identity (IndexedDB → localStorage → cookie)
   useEffect(() => {
     if (typeof window === 'undefined') return;
-
-    try {
-      let storedId = localStorage.getItem('demo_device_id');
-      if (storedId) {
-        // Reuse existing device id if it was previously stored (non-developer login)
-        setDeviceId(storedId);
-      } else {
-        // Generate an in-memory device id candidate; will only be saved
-        // to localStorage after a successful non-developer login
-        let generatedId;
-        if (window.crypto && typeof window.crypto.randomUUID === 'function') {
-          generatedId = window.crypto.randomUUID();
-        } else {
-          generatedId = `dev-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-        }
-        setDeviceId(generatedId);
-      }
-    } catch (e) {
-      // If localStorage is unavailable, fall back to an in-memory id
-      const fallbackId = `dev-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      setDeviceId(fallbackId);
-    }
-  }, []);
-
-  // DevTools detection on login page (show for ALL users including developers)
-  useEffect(() => {
-    let checkInterval;
-    
-    // Check user role (but don't skip detection for developers on login page)
-    const checkUserRole = async () => {
+    let cancelled = false;
+    (async () => {
       try {
-        const response = await fetch('/api/auth/me', {
-          method: 'GET',
-          credentials: 'include'
-        });
-        if (response.ok) {
-          const userData = await response.json();
-          setUserRole(userData.role);
+        const identity = await getDeviceIdentity();
+        if (cancelled) return;
+        setDeviceId(identity.device_id || null);
+        setDeviceFingerprint(identity.fingerprint || null);
+      } catch {
+        if (!cancelled) {
+          setDeviceId(null);
+          setDeviceFingerprint(null);
         }
-      } catch (error) {
-        // Ignore errors - user not logged in yet
       }
-      
-      // Run devtools detection for ALL users on login page
-      const detectDevTools = () => {
-        const widthDiff = window.outerWidth - window.innerWidth;
-        const heightDiff = window.outerHeight - window.innerHeight;
-        
-        if (widthDiff > 160 || heightDiff > 160) {
-          setDevToolsDetected(true);
-          return;
-        }
-
-        const consoleStart = performance.now();
-        console.log('%c', '');
-        const consoleEnd = performance.now();
-        
-        if (consoleEnd - consoleStart > 1) {
-          setDevToolsDetected(true);
-          return;
-        }
-
-        setDevToolsDetected(false);
-      };
-
-      // Start detection for all users
-      checkInterval = setInterval(detectDevTools, 500);
-      detectDevTools();
-    };
-    
-    checkUserRole();
-
+    })();
     return () => {
-      if (checkInterval) {
-        clearInterval(checkInterval);
-      }
+      cancelled = true;
     };
   }, []);
 
@@ -550,9 +493,8 @@ export default function Login() {
     setUsernameError("");
     setPasswordError("");
 
-    // Don't block login - let it proceed
-    // DevToolsProtection in _app.js will handle protection after login
-    // and will bypass for developers
+    // Soft DevTools deterrence (if enabled) runs after auth on student routes only.
+    // Fail-open: never blocks login here.
 
     // Trim whitespaces from username before sending
     const trimmedUsername = assistant_id.trim();
@@ -561,22 +503,31 @@ export default function Login() {
       ? Number(trimmedUsername)
       : trimmedUsername;
 
+    // Always refresh persistent identity right before login (covers storage repair)
+    let loginDeviceId = deviceId;
+    let loginFingerprint = deviceFingerprint;
+    try {
+      const identity = await getDeviceIdentity();
+      loginDeviceId = identity.device_id || loginDeviceId;
+      loginFingerprint = identity.fingerprint || loginFingerprint;
+      setDeviceId(loginDeviceId);
+      setDeviceFingerprint(loginFingerprint);
+    } catch {
+      /* keep prior in-memory values */
+    }
+
     loginMutation.mutate(
-      { assistant_id: assistantIdForRequest, password, device_id: deviceId || null },
+      {
+        assistant_id: assistantIdForRequest,
+        password,
+        device_id: loginDeviceId || null,
+        device_fingerprint: loginFingerprint || null,
+      },
       {
         onSuccess: (data) => {
-          // Set user role for devtools check
-          setUserRole(data.role);
-
-          // Persist device_id only for non-developer roles
-          if (typeof window !== 'undefined') {
-            try {
-              if (data.role !== 'developer' && deviceId) {
-                localStorage.setItem('demo_device_id', deviceId);
-              }
-            } catch (e) {
-              // Ignore storage errors
-            }
+          // Persist device identity across IndexedDB / localStorage / cookie
+          if (data.role !== 'developer' && loginDeviceId) {
+            persistDeviceIdentity(loginDeviceId).catch(() => {});
           }
           
           // Remove all sessionStorage items after successful login
@@ -628,6 +579,10 @@ export default function Login() {
             setMessage("student_account_deactivated"); // Special marker for custom rendering
           } else if (err.response?.data?.error === 'device_limit_reached') {
             setMessage("device_limit_reached");
+          } else if (err.response?.data?.error === 'device_id_required') {
+            setMessage(err.response?.data?.message || "Could not identify this device. Please refresh and try again.");
+          } else if (err.response?.data?.error === 'device_update_conflict') {
+            setMessage(err.response?.data?.message || "Could not register this device. Please try again.");
           } else if (err.response?.data?.error === 'subscription_inactive' || err.response?.data?.error === 'subscription_expired') {
             setMessage(err.response?.data?.message || "Access unavailable: Subscription expired. Please contact Tony Joseph (developer) to renew.");
           } else {
@@ -639,6 +594,14 @@ export default function Login() {
   };
 
   return (
+    <>
+    <SiteSeo
+      title={seoCopy.title}
+      description={seoCopy.description}
+      path="/"
+      siteName={systemConfig?.name}
+      origin={systemConfig?.domain}
+    />
     <div style={{ 
       height: '100vh',
       width: '100vw',
@@ -1145,7 +1108,7 @@ export default function Login() {
 
         <div className="login-container">
           <div className="logo-section">
-            <Image src="/logo.png" alt="Logo" width={120} height={120} className="logo-icon" style={{ borderRadius: '50%' }} priority />
+            <Image src="/logo.png" alt={`${systemConfig?.name || 'System'} logo`} width={120} height={120} className="logo-icon" style={{ borderRadius: '50%' }} priority />
             <h1 className="title">Application Login</h1>
             <p className="subtitle">Welcome back! Please sign in to continue</p>
           </div>
@@ -1650,5 +1613,6 @@ export default function Login() {
           <NeedHelp style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #e9ecef' }} />
         </Modal>
     </div>
+    </>
   );
 }

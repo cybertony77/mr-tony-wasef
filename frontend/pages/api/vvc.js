@@ -2,6 +2,12 @@ import { MongoClient, ObjectId } from 'mongodb';
 import fs from 'fs';
 import path from 'path';
 import { authMiddleware } from '../../lib/authMiddleware';
+import {
+  formatEgyptDateTime,
+  toEgyptYmd,
+  getEgyptYmdToday,
+  compareEgyptYmd,
+} from '../../lib/egyptDateTime';
 
 function loadEnvConfig() {
   try {
@@ -32,6 +38,29 @@ function loadEnvConfig() {
 const envConfig = loadEnvConfig();
 const MONGO_URI = envConfig.MONGO_URI || process.env.MONGO_URI;
 const DB_NAME = envConfig.DB_NAME || process.env.DB_NAME;
+
+function isVvcVhcAdminsOnly() {
+  const latest = loadEnvConfig();
+  return (
+    latest.SYSTEM_VVC_AND_VHC_ADMINS_ONLY === 'true' ||
+    process.env.SYSTEM_VVC_AND_VHC_ADMINS_ONLY === 'true'
+  );
+}
+
+/** developer always; admin always; assistant only when admins-only flag is off/missing */
+function canAccessVvcVhc(role) {
+  if (role === 'developer' || role === 'admin') return true;
+  if (role === 'assistant') return !isVvcVhcAdminsOnly();
+  return false;
+}
+
+function normalizeDeadlineDateEgypt(deadlineDate) {
+  if (!deadlineDate) return deadlineDate;
+  if (typeof deadlineDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(deadlineDate)) {
+    return deadlineDate;
+  }
+  return toEgyptYmd(deadlineDate) || deadlineDate;
+}
 
 // Helper function to generate VVC code (9 chars: 5 numbers, 2 uppercase, 2 lowercase)
 const generateVVCCode = () => {
@@ -64,22 +93,6 @@ const generateVVCCode = () => {
   return code.join('');
 };
 
-// Format date as MM/DD/YYYY at hour:minute AM/PM
-function formatDate(date) {
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const year = date.getFullYear();
-  
-  let hours = date.getHours();
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  const ampm = hours >= 12 ? 'PM' : 'AM';
-  hours = hours % 12;
-  hours = hours ? hours : 12; // the hour '0' should be '12'
-  const hoursStr = String(hours).padStart(2, '0');
-  
-  return `${month}/${day}/${year} at ${hoursStr}:${minutes} ${ampm}`;
-}
-
 export default async function handler(req, res) {
   if (req.method === 'GET') {
     let client;
@@ -88,7 +101,7 @@ export default async function handler(req, res) {
       const user = await authMiddleware(req);
       
       // Check if user has required role (admin, developer, or assistant)
-      if (!['admin', 'developer', 'assistant'].includes(user.role)) {
+      if (!canAccessVvcVhc(user.role)) {
         return res.status(403).json({ error: 'Forbidden: Access denied' });
       }
 
@@ -160,29 +173,10 @@ export default async function handler(req, res) {
           .limit(pageSize)
           .toArray();
 
-        // Normalize deadline_date to string format (YYYY-MM-DD) if it's a Date object
+        // Normalize deadline_date to YYYY-MM-DD in Africa/Cairo
         const normalizedRecords = vvcRecords.map(record => {
           if (record.deadline_date) {
-            if (record.deadline_date instanceof Date) {
-              // Convert Date object to YYYY-MM-DD string in local timezone
-              const year = record.deadline_date.getFullYear();
-              const month = String(record.deadline_date.getMonth() + 1).padStart(2, '0');
-              const day = String(record.deadline_date.getDate()).padStart(2, '0');
-              record.deadline_date = `${year}-${month}-${day}`;
-            } else if (typeof record.deadline_date === 'string' && !/^\d{4}-\d{2}-\d{2}$/.test(record.deadline_date)) {
-              // If it's a string but not in YYYY-MM-DD format, try to parse and normalize
-              try {
-                const date = new Date(record.deadline_date);
-                if (!isNaN(date.getTime())) {
-                  const year = date.getFullYear();
-                  const month = String(date.getMonth() + 1).padStart(2, '0');
-                  const day = String(date.getDate()).padStart(2, '0');
-                  record.deadline_date = `${year}-${month}-${day}`;
-                }
-              } catch (e) {
-                // If parsing fails, keep original value
-              }
-            }
+            record.deadline_date = normalizeDeadlineDateEgypt(record.deadline_date);
           }
           return record;
         });
@@ -202,29 +196,10 @@ export default async function handler(req, res) {
       // Non-paginated response (for backward compatibility)
       const vvcRecords = await db.collection('VVC').find({}).toArray();
       
-      // Normalize deadline_date to string format (YYYY-MM-DD) if it's a Date object
+      // Normalize deadline_date to YYYY-MM-DD in Africa/Cairo
       const normalizedRecords = vvcRecords.map(record => {
         if (record.deadline_date) {
-          if (record.deadline_date instanceof Date) {
-            // Convert Date object to YYYY-MM-DD string in local timezone
-            const year = record.deadline_date.getFullYear();
-            const month = String(record.deadline_date.getMonth() + 1).padStart(2, '0');
-            const day = String(record.deadline_date.getDate()).padStart(2, '0');
-            record.deadline_date = `${year}-${month}-${day}`;
-          } else if (typeof record.deadline_date === 'string' && !/^\d{4}-\d{2}-\d{2}$/.test(record.deadline_date)) {
-            // If it's a string but not in YYYY-MM-DD format, try to parse and normalize
-            try {
-              const date = new Date(record.deadline_date);
-              if (!isNaN(date.getTime())) {
-                const year = date.getFullYear();
-                const month = String(date.getMonth() + 1).padStart(2, '0');
-                const day = String(date.getDate()).padStart(2, '0');
-                record.deadline_date = `${year}-${month}-${day}`;
-              }
-            } catch (e) {
-              // If parsing fails, keep original value
-            }
-          }
+          record.deadline_date = normalizeDeadlineDateEgypt(record.deadline_date);
         }
         return record;
       });
@@ -244,7 +219,7 @@ export default async function handler(req, res) {
       const user = await authMiddleware(req);
       
       // Check if user has required role (admin, developer, or assistant)
-      if (!['admin', 'developer', 'assistant'].includes(user.role)) {
+      if (!canAccessVvcVhc(user.role)) {
         return res.status(403).json({ error: 'Forbidden: Access denied' });
       }
 
@@ -273,16 +248,11 @@ export default async function handler(req, res) {
         if (!deadline_date) {
           return res.status(400).json({ error: 'Deadline date is required' });
         }
-        // Validate date format (YYYY-MM-DD)
+        // Validate date format (YYYY-MM-DD) against Egypt calendar day
         if (!/^\d{4}-\d{2}-\d{2}$/.test(deadline_date)) {
           return res.status(400).json({ error: 'Invalid date format. Expected YYYY-MM-DD' });
         }
-        // Parse date in local timezone to avoid timezone shift
-        const [year, month, day] = deadline_date.split('-').map(Number);
-        const selectedDate = new Date(year, month - 1, day);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        if (selectedDate <= today) {
+        if (compareEgyptYmd(deadline_date, getEgyptYmdToday()) <= 0) {
           return res.status(400).json({ error: 'Deadline date must be in the future' });
         }
       }
@@ -294,8 +264,7 @@ export default async function handler(req, res) {
       client = await MongoClient.connect(MONGO_URI);
       const db = client.db(DB_NAME);
 
-      const currentDate = new Date();
-      const formattedDate = formatDate(currentDate);
+      const formattedDate = formatEgyptDateTime(new Date());
       const madeByWho = user.assistant_id || user.id || 'unknown';
 
       // Generate multiple VVC codes
@@ -348,7 +317,7 @@ export default async function handler(req, res) {
       const user = await authMiddleware(req);
       
       // Check if user has required role (admin, developer, or assistant)
-      if (!['admin', 'developer', 'assistant'].includes(user.role)) {
+      if (!canAccessVvcVhc(user.role)) {
         return res.status(403).json({ error: 'Forbidden: Access denied' });
       }
 
@@ -381,16 +350,11 @@ export default async function handler(req, res) {
         if (!deadline_date) {
           return res.status(400).json({ error: 'Deadline date is required' });
         }
-        // Validate date format (YYYY-MM-DD)
+        // Validate date format (YYYY-MM-DD) against Egypt calendar day
         if (!/^\d{4}-\d{2}-\d{2}$/.test(deadline_date)) {
           return res.status(400).json({ error: 'Invalid date format. Expected YYYY-MM-DD' });
         }
-        // Parse date in local timezone to avoid timezone shift
-        const [year, month, day] = deadline_date.split('-').map(Number);
-        const selectedDate = new Date(year, month - 1, day);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        if (selectedDate <= today) {
+        if (compareEgyptYmd(deadline_date, getEgyptYmdToday()) <= 0) {
           return res.status(400).json({ error: 'Deadline date must be in the future' });
         }
       }
@@ -476,7 +440,7 @@ export default async function handler(req, res) {
       const user = await authMiddleware(req);
       
       // Check if user has required role (admin, developer, or assistant)
-      if (!['admin', 'developer', 'assistant'].includes(user.role)) {
+      if (!canAccessVvcVhc(user.role)) {
         return res.status(403).json({ error: 'Forbidden: Access denied' });
       }
 

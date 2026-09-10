@@ -14,6 +14,7 @@ import { useNationalSystem, getCourseFieldLabels } from '../../lib/api/system';
 import PhoneInput from 'react-phone-input-2';
 import 'react-phone-input-2/lib/style.css';
 import { formatPhoneForDB, validateEgyptPhone, handleEgyptPhoneKeyDown } from '../../lib/phoneUtils';
+import { sortStudentsByName } from '../../lib/sortStudentsByName';
 
 // Helper to normalize grade values to match select options
 function normalizeGrade(grade) {
@@ -175,7 +176,7 @@ export default function EditStudent() {
           setSearchId(foundStudent.id.toString());
           setStudentId(foundStudent.id.toString());
         } else if (phoneMatches.length > 1) {
-          setSearchResults(phoneMatches);
+          setSearchResults(sortStudentsByName(phoneMatches));
           setShowSearchResults(true);
           setError(`Found ${phoneMatches.length} students. Please select one.`);
         } else {
@@ -202,7 +203,7 @@ export default function EditStudent() {
           setStudentId(foundStudent.id.toString());
         } else if (matchingStudents.length > 1) {
           // Multiple matches, show selection
-          setSearchResults(matchingStudents);
+          setSearchResults(sortStudentsByName(matchingStudents));
           setShowSearchResults(true);
           setError(`Found ${matchingStudents.length} students. Please select one.`);
         } else {

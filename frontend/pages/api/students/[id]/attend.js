@@ -45,19 +45,29 @@ function isPaymentSystemEnabled() {
   return live.SYSTEM_PAYMENT_SYSTEM === 'true' || process.env.SYSTEM_PAYMENT_SYSTEM === 'true';
 }
 
+function isNationalSystemEnabled() {
+  const live = loadEnvConfig();
+  return live.NATIONAL_SYSTEM === 'true' || process.env.NATIONAL_SYSTEM === 'true';
+}
+
+/** NATIONAL_SYSTEM=true → date + center only; otherwise include Cairo wall-clock time. */
 function formatEgyptAttendance(center) {
+  const includeTime = !isNationalSystemEnabled();
+  const opts = includeTime
+    ? { hour: 'numeric', minute: '2-digit', hour12: true }
+    : {};
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Africa/Cairo',
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
+    ...opts,
   }).formatToParts(new Date());
   const getPart = (type) => parts.find((part) => part.type === type)?.value || '';
+  const base = `${getPart('day')}/${getPart('month')}/${getPart('year')} in ${center || 'Unknown Center'}`;
+  if (!includeTime) return base;
   const hour = getPart('hour').replace(/^0/, '');
-  return `${getPart('day')}/${getPart('month')}/${getPart('year')} in ${center || 'Unknown Center'} at ${hour}:${getPart('minute')} ${getPart('dayPeriod')}`;
+  return `${base} at ${hour}:${getPart('minute')} ${getPart('dayPeriod')}`;
 }
 
 function normalizePayment(payment) {

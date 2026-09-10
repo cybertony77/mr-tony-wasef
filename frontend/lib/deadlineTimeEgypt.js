@@ -1,12 +1,29 @@
 /**
- * Deadline date + optional time ("04:30 AM") interpreted in Africa/Cairo (UTC+2, no DST).
+ * Deadline date + optional time ("05:30 PM") interpreted in Africa/Cairo.
+ *
+ * Stored:
+ *   deadline_date: "YYYY-MM-DD" (Egypt civil day)
+ *   deadline_time: "05:30 PM" or null (Egypt wall clock; null = end of that Cairo day)
+ *
+ * Display:
+ *   "13/05/2026" or "13/05/2026 at 05:30 PM"
  */
 
+export const EGYPT_TIME_ZONE = 'Africa/Cairo';
+/** Egypt is permanently UTC+2 (no DST). Used only for Date.UTC conversions. */
 export const EGYPT_UTC_OFFSET_HOURS = 2;
 
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
 /**
- * Normalize stored deadline_date to YYYY-MM-DD (civil date) for Egypt math.
- * Mongo / JSON often send "2026-05-02T00:00:00.000Z" which must not fail strict date-only parsing.
+ * Normalize stored deadline_date to YYYY-MM-DD (Egypt civil date).
+ * Accepts:
+ *   - "2026-05-13" / "2026-05-13T00:00:00.000Z"
+ *   - "13/05/2026" / "13-05-2026"
+ *   - "13/05/2026 at 05:30 PM" (date part only)
+ *   - Date / Mongo {$date}
  */
 export function normalizeDeadlineDateYmd(deadlineDate) {
   if (deadlineDate == null || deadlineDate === '') return null;
@@ -14,17 +31,41 @@ export function normalizeDeadlineDateYmd(deadlineDate) {
   if (typeof raw === 'object' && raw !== null && '$date' in raw) {
     raw = raw.$date;
   }
-  const s = String(raw).trim();
-  const prefix = s.match(/^(\d{4}-\d{2}-\d{2})/);
-  if (prefix) return prefix[1];
+  if (raw instanceof Date) {
+    if (Number.isNaN(raw.getTime())) return null;
+    return toEgyptYmdFromInstant(raw);
+  }
+
+  const s = String(raw)
+    .trim()
+    .replace(/\u00a0/g, ' ')
+    .replace(/\u202f/g, ' ');
+
+  // ISO / HTML date input — take calendar date as written (admin enters Egypt day).
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+
+  // DD/MM/YYYY or DD-MM-YYYY (optional " at …" suffix)
+  const dmy = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+  if (dmy) {
+    const dd = pad2(dmy[1]);
+    const mo = pad2(dmy[2]);
+    const yyyy = dmy[3];
+    return `${yyyy}-${mo}-${dd}`;
+  }
+
   const ms = Date.parse(s);
   if (Number.isNaN(ms)) return null;
+  return toEgyptYmdFromInstant(new Date(ms));
+}
+
+function toEgyptYmdFromInstant(date) {
   const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Africa/Cairo',
+    timeZone: EGYPT_TIME_ZONE,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).formatToParts(new Date(ms));
+  }).formatToParts(date);
   const y = parts.find((p) => p.type === 'year')?.value;
   const mo = parts.find((p) => p.type === 'month')?.value;
   const d = parts.find((p) => p.type === 'day')?.value;
@@ -41,7 +82,11 @@ export function hour12To24(h12, period) {
   return null;
 }
 
-/** Parse "04:30 AM" / "4:30 pm" / "04:30:00 PM" -> { hour12, minute } or null */
+/**
+ * Parse time as Egypt wall clock.
+ * Accepts: "05:30 PM", "5:30 pm", "05:30:00 PM", or extracted from
+ * "13/05/2026 at 05:30 PM".
+ */
 export function parseDeadlineTime(str) {
   if (str == null) return null;
   let s = typeof str === 'string' ? str : String(str);
@@ -50,6 +95,13 @@ export function parseDeadlineTime(str) {
     .replace(/\u00a0/g, ' ')
     .replace(/\u202f/g, ' ')
     .replace(/\s+/g, ' ');
+
+  // Allow full "DD/MM/YYYY at 05:30 PM"
+  const atIdx = s.toLowerCase().lastIndexOf(' at ');
+  if (atIdx !== -1) {
+    s = s.slice(atIdx + 4).trim();
+  }
+
   const m = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)$/i);
   if (!m) return null;
   const hour12 = parseInt(m[1], 10);
@@ -59,7 +111,7 @@ export function parseDeadlineTime(str) {
   return { hour12, minute, period };
 }
 
-/** Build "04:30 AM" from parts; null if incomplete / invalid */
+/** Canonical stored time: "05:30 PM". null if incomplete / invalid. */
 export function formatDeadlineTimeFromParts(hourStr, minuteStr, period) {
   const hs = String(hourStr ?? '').replace(/\D/g, '').slice(0, 2);
   const ms = String(minuteStr ?? '').replace(/\D/g, '').slice(0, 2);
@@ -68,11 +120,20 @@ export function formatDeadlineTimeFromParts(hourStr, minuteStr, period) {
   const h = parseInt(hs, 10);
   const m = parseInt(ms, 10);
   if (Number.isNaN(h) || h < 1 || h > 12 || Number.isNaN(m) || m < 0 || m > 59) return null;
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')} ${p}`;
+  return `${pad2(h)}:${pad2(m)} ${p}`;
+}
+
+/** Normalize any parseable time string to canonical "05:30 PM". */
+export function canonicalizeDeadlineTime(raw) {
+  const parsed = parseDeadlineTime(raw);
+  if (!parsed) return null;
+  return formatDeadlineTimeFromParts(parsed.hour12, pad2(parsed.minute), parsed.period);
 }
 
 /**
- * UTC ms for end of deadline: if time given, that clock in Cairo; else end of that calendar day in Cairo.
+ * UTC ms for deadline instant in Africa/Cairo:
+ * - with time → that Cairo clock time
+ * - date only → end of that Cairo calendar day (23:59:59.999)
  */
 export function getDeadlineEndUtcMs(deadlineDateYmd, deadlineTimeStr) {
   const ymd = normalizeDeadlineDateYmd(deadlineDateYmd);
@@ -91,7 +152,7 @@ export function getDeadlineEndUtcMs(deadlineDateYmd, deadlineTimeStr) {
 /** Cairo "now" parts (civil date + 24h clock) for Africa/Cairo. */
 function getCairoNowParts() {
   const fmt = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Africa/Cairo',
+    timeZone: EGYPT_TIME_ZONE,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -116,8 +177,10 @@ function getCairoNowParts() {
 }
 
 /**
- * True if current instant is past the deadline in Africa/Cairo (same meaning as admin "deadline date + time").
- * Uses Intl for "now" so it matches Cairo wall clock even if the student's PC timezone differs.
+ * True if current Cairo wall clock is past the deadline.
+ * - Date + time: past that Cairo clock time
+ * - Date only: past end of that Cairo calendar day (still open all day on the deadline date)
+ * Uses Intl "now" so student/admin PC timezone does not affect the result.
  */
 export function isDeadlinePassedEgypt(deadlineDateYmd, deadlineTimeStr) {
   const ymd = normalizeDeadlineDateYmd(deadlineDateYmd);
@@ -132,10 +195,10 @@ export function isDeadlinePassedEgypt(deadlineDateYmd, deadlineTimeStr) {
   if (n.d > dd) return true;
   if (n.d < dd) return false;
 
-  // Same calendar day in Cairo
+  // Same Cairo calendar day
   const parsed = deadlineTimeStr ? parseDeadlineTime(String(deadlineTimeStr)) : null;
   if (!parsed) {
-    // Date-only: active through end of that Cairo day (not "passed" until next Cairo midnight).
+    // Date-only: active through end of that Cairo day
     return false;
   }
   const h24 = hour12To24(parsed.hour12, parsed.period);
@@ -145,44 +208,42 @@ export function isDeadlinePassedEgypt(deadlineDateYmd, deadlineTimeStr) {
   return nowSec > deadlineSec;
 }
 
+/** True if deadline is still in the future in Africa/Cairo (admin create/edit validation). */
 export function isDeadlineStrictlyInFutureEgypt(deadlineDateYmd, deadlineTimeStr) {
-  const end = getDeadlineEndUtcMs(deadlineDateYmd, deadlineTimeStr);
-  if (end == null) return false;
-  return end > Date.now();
+  const ymd = normalizeDeadlineDateYmd(deadlineDateYmd);
+  if (!ymd) return false;
+  // Same Cairo wall-clock semantics as isDeadlinePassedEgypt
+  return !isDeadlinePassedEgypt(ymd, deadlineTimeStr);
 }
 
-/** Card line: "With deadline date : MM/DD/YYYY at 04:30 AM" (civil date from stored value, same as deadline math). */
-export function formatDeadlineCardLabel(deadline_date, deadline_time) {
-  if (!deadline_date) return '';
+/**
+ * Display: "13/05/2026" or "13/05/2026 at 05:30 PM" (Egypt civil date + optional Cairo time).
+ */
+export function formatDeadlineDisplayEgypt(deadline_date, deadline_time) {
   const ymd = normalizeDeadlineDateYmd(deadline_date);
   if (!ymd) return '';
   const [y, mo, d] = ymd.split('-');
-  const part = `${mo}/${d}/${y}`;
-  const t = deadline_time && String(deadline_time).trim();
-  if (t) return `With deadline date : ${part} at ${t}`;
-  return `With deadline date : ${part}`;
+  const datePart = `${d}/${mo}/${y}`;
+  const timePart = canonicalizeDeadlineTime(deadline_time);
+  if (timePart) return `${datePart} at ${timePart}`;
+  return datePart;
 }
 
-/** Server/client: normalize body field to string or null */
+/** Card line: "With deadline date : 13/05/2026 at 05:30 PM" */
+export function formatDeadlineCardLabel(deadline_date, deadline_time) {
+  const display = formatDeadlineDisplayEgypt(deadline_date, deadline_time);
+  if (!display) return '';
+  return `With deadline date : ${display}`;
+}
+
+/** Server/client: normalize body field to canonical "05:30 PM" or null */
 export function normalizeDeadlineTimeField(deadline_type, raw) {
   if (deadline_type !== 'with_deadline') return null;
   if (raw == null || raw === '') return null;
-  const s = String(raw).trim();
-  if (!s) return null;
-  return parseDeadlineTime(s) ? s : null;
+  return canonicalizeDeadlineTime(raw);
 }
 
 /** YYYY-MM-DD for "today" in Africa/Cairo (for date input min, etc.) */
 export function getEgyptYmdToday() {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Africa/Cairo',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date());
-  const y = parts.find((p) => p.type === 'year')?.value;
-  const m = parts.find((p) => p.type === 'month')?.value;
-  const d = parts.find((p) => p.type === 'day')?.value;
-  if (!y || !m || !d) return new Date().toISOString().split('T')[0];
-  return `${y}-${m}-${d}`;
+  return toEgyptYmdFromInstant(new Date()) || new Date().toISOString().split('T')[0];
 }

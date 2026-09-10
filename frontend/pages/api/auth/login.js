@@ -3,7 +3,12 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import fs from 'fs';
 import path from 'path';
-import UAParser from 'ua-parser-js';
+import {
+  applyDeviceLimitationsAtomic,
+  extractClientIp,
+  parseUserAgentMeta,
+  isUsableDeviceId,
+} from '../../../lib/deviceLimitationsServer';
 
 // Load environment variables from env.config
 function loadEnvConfig() {
@@ -71,37 +76,13 @@ function isDeviceLimitationsEnabled() {
   }
 }
 
-// Format date as DD/MM/YYYY at HH:MM AM/PM in Egypt/Cairo timezone
-function formatDateTime(date) {
-  // Convert to Egypt/Cairo timezone
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Africa/Cairo',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  });
-
-  const parts = formatter.formatToParts(date);
-  const day = parts.find(p => p.type === 'day').value;
-  const month = parts.find(p => p.type === 'month').value;
-  const year = parts.find(p => p.type === 'year').value;
-  const hour = parts.find(p => p.type === 'hour').value;
-  const minute = parts.find(p => p.type === 'minute').value;
-  const period = parts.find(p => p.type === 'dayPeriod').value.toUpperCase();
-
-  return `${day}/${month}/${year} at ${hour}:${minute} ${period}`;
-}
-
 console.log('🔗 Using Mongo URI:', MONGO_URI);
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
-  const { assistant_id, password, device_id } = req.body;
+  const { assistant_id, password, device_id, device_fingerprint } = req.body;
   if (!assistant_id || !password) {
     return res.status(400).json({ error: 'assistant_id and password required' });
   }
@@ -250,101 +231,41 @@ export default async function handler(req, res) {
 
     // Device limitations logic (only if enabled and role is NOT developer)
     if (isDeviceLimitationsEnabled() && assistant.role !== 'developer') {
-      const now = new Date();
-      const nowFormatted = formatDateTime(now);
-
-      // Derive device id (fallback to a deterministic string if missing)
-      const incomingDeviceId =
-        (typeof device_id === 'string' && device_id.trim() !== '')
-          ? device_id.trim()
-          : 'unknown-device';
-
-      // Derive IP from headers / socket
-      const forwardedFor = req.headers['x-forwarded-for'];
-      const ipFromHeader = Array.isArray(forwardedFor)
-        ? forwardedFor[0]
-        : (forwardedFor || '').split(',')[0].trim();
-      const ip =
-        ipFromHeader ||
-        (req.socket && req.socket.remoteAddress) ||
-        'unknown';
-
-      // Parse user-agent for browser / OS / device type
-      const userAgent = req.headers['user-agent'] || '';
-      let browser = 'Unknown';
-      let os = 'Unknown';
-      let deviceType = 'desktop';
-
-      try {
-        const parser = new UAParser(userAgent);
-        const result = parser.getResult();
-        if (result.browser && result.browser.name) {
-          browser = result.browser.name;
-        }
-        if (result.os && result.os.name) {
-          os = result.os.name;
-        }
-        if (result.device && result.device.type) {
-          deviceType = result.device.type;
-        }
-      } catch (parseErr) {
-        // Keep defaults if parsing fails
+      if (!isUsableDeviceId(device_id)) {
+        return res.status(400).json({
+          error: 'device_id_required',
+          message: 'A stable device identity is required to sign in.',
+        });
       }
 
-      const existingLimitations = assistant.device_limitations || {};
-      const allowedDevices =
-        typeof existingLimitations.allowed_devices === 'number'
-          ? existingLimitations.allowed_devices
-          : 1;
+      const incomingDeviceId = String(device_id).trim();
+      const ip = extractClientIp(req);
+      const { browser, os, deviceType } = parseUserAgentMeta(req.headers['user-agent'] || '');
 
-      const devices = Array.isArray(existingLimitations.devices)
-        ? [...existingLimitations.devices]
-        : [];
+      const deviceResult = await applyDeviceLimitationsAtomic(db, assistant, {
+        incomingDeviceId,
+        fingerprintRaw: device_fingerprint,
+        ip,
+        browser,
+        os,
+        deviceType,
+      });
 
-      const existingIndex = devices.findIndex(
-        (d) => d && d.device_id === incomingDeviceId
-      );
-
-      // If device not registered yet, enforce limit
-      if (existingIndex === -1) {
-        if (devices.length >= allowedDevices) {
-          // Block login when maximum number of devices is reached
-          return res.status(403).json({
-            error: 'device_limit_reached',
+      if (!deviceResult.ok) {
+        if (deviceResult.error === 'device_limit_reached') {
+          return res.status(403).json({ error: 'device_limit_reached' });
+        }
+        if (deviceResult.error === 'device_id_required') {
+          return res.status(400).json({
+            error: 'device_id_required',
+            message: 'A stable device identity is required to sign in.',
           });
         }
-
-        devices.push({
-          device_id: incomingDeviceId,
-          ip,
-          browser,
-          os,
-          device_type: deviceType,
-          first_login: nowFormatted,
-          last_login: nowFormatted,
+        return res.status(409).json({
+          error: deviceResult.error || 'device_update_conflict',
+          message: 'Could not register this device. Please try again.',
         });
-      } else {
-        // Update last_login for existing device
-        devices[existingIndex] = {
-          ...devices[existingIndex],
-          ip: devices[existingIndex].ip || ip,
-          browser: devices[existingIndex].browser || browser,
-          os: devices[existingIndex].os || os,
-          device_type: devices[existingIndex].device_type || deviceType,
-          last_login: nowFormatted,
-        };
       }
-
-      const updatedLimitations = {
-        allowed_devices: allowedDevices,
-        last_login: nowFormatted,
-        devices,
-      };
-
-      await db.collection('users').updateOne(
-        { _id: assistant._id },
-        { $set: { device_limitations: updatedLimitations } }
-      );
     }
     
     const token = jwt.sign(

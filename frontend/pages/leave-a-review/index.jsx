@@ -7,8 +7,10 @@ import { useQuery } from '@tanstack/react-query';
 import { Group, Rating, Text } from '@mantine/core';
 import CourseSelect from '../../components/CourseSelect';
 import FullPageActionLoader from '../../components/FullPageActionLoader';
-import { useNationalSystem, getCourseFieldLabels } from '../../lib/api/system';
+import { useNationalSystem, getCourseFieldLabels, useSystemConfig } from '../../lib/api/system';
 import styles from '../../styles/leave-a-review.module.css';
+import SiteSeo from '../../components/SiteSeo';
+import { getPublicPageSeo } from '../../lib/seo';
 
 const RATING_COLOR = 'rgba(242, 207, 5, 1)';
 
@@ -42,6 +44,8 @@ export default function LeaveAReviewPage() {
 
   const isNational = useNationalSystem();
   const courseLabels = getCourseFieldLabels(isNational);
+  const { data: systemConfig } = useSystemConfig();
+  const seoCopy = getPublicPageSeo('/leave-a-review', systemConfig?.name);
 
   const { data: profile } = useQuery({
     queryKey: ['auth', 'profile', 'leave-a-review'],
@@ -206,6 +210,13 @@ export default function LeaveAReviewPage() {
 
   return (
     <div className={styles.page}>
+      <SiteSeo
+        title={seoCopy.title}
+        description={seoCopy.description}
+        path="/leave-a-review"
+        siteName={systemConfig?.name}
+        origin={systemConfig?.domain}
+      />
       <FullPageActionLoader
         active={loading || submitting}
         label={submitting ? 'Submitting' : 'Loading'}

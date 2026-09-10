@@ -38,7 +38,7 @@ export default function DeadlineTimeRow({ value, onChange, disabled, error }) {
 
   return (
     <div className="dl-time-wrap">
-      <label className="dl-time-main-label">Deadline time</label>
+      <label className="dl-time-main-label">Deadline time (Egypt / Cairo)</label>
       <div className="dl-time-row">
         <div className="dl-time-field dl-time-time-col">
           <span className="dl-time-sublabel">Time</span>
@@ -144,6 +144,9 @@ export default function DeadlineTimeRow({ value, onChange, disabled, error }) {
         </div>
       </div>
       {error && <div className="dl-time-err">{error}</div>}
+      <div className="dl-time-hint">
+        Optional. Leave empty for end of that day in Egypt. Example: 13/05/2026 at 05:30 PM
+      </div>
       <style jsx>{`
         .dl-time-wrap {
           margin-top: 12px;
@@ -251,6 +254,12 @@ export default function DeadlineTimeRow({ value, onChange, disabled, error }) {
           color: #dc3545;
           font-size: 0.875rem;
           margin-top: 6px;
+        }
+        .dl-time-hint {
+          color: #6c757d;
+          font-size: 0.82rem;
+          margin-top: 8px;
+          line-height: 1.4;
         }
         @media (max-width: 520px) {
           .dl-time-row {

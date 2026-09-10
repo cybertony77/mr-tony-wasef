@@ -38,6 +38,7 @@ import AllowDownloadingRadio from '../../../../components/AllowDownloadingRadio'
 import UseDesmosInQuestionRadio from '../../../../components/online/UseDesmosInQuestionRadio';
 import {
   isDeadlineStrictlyInFutureEgypt,
+  getEgyptYmdToday,
   normalizeDeadlineTimeField,
   parseDeadlineTime,
 } from '../../../../lib/deadlineTimeEgypt';
@@ -1674,10 +1675,11 @@ export default function EditHomework() {
                 {formData.deadline_type === 'with_deadline' && (
                   <div style={{ marginBottom: '20px' }}>
                     <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', textAlign: 'left' }}>
-                      Deadline Date <span style={{ color: 'red' }}>*</span>
+                      Deadline Date (Egypt / Cairo) <span style={{ color: 'red' }}>*</span>
                     </label>
                     <input
                       type="date"
+                      min={getEgyptYmdToday()}
                       value={formData.deadline_date}
                       onChange={(e) =>
                         setFormData({

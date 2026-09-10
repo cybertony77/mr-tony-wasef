@@ -35,19 +35,27 @@ function loadEnvFromConfigFile() {
 }
 
 export function getEnvConfig() {
-  if (cachedEnv) return cachedEnv;
+  // Always re-read so Cloudinary secret rotation works without restart.
   cachedEnv = loadEnvFromConfigFile();
   return cachedEnv;
 }
 
 export function getCloudinaryCredentials() {
-  if (cachedConfig) return cachedConfig;
   const env = getEnvConfig();
-  cachedConfig = {
+  const next = {
     cloud_name: env.CLOUDINARY_CLOUD_NAME || process.env.CLOUDINARY_CLOUD_NAME,
     api_key: env.CLOUDINARY_API_KEY || process.env.CLOUDINARY_API_KEY,
     api_secret: env.CLOUDINARY_API_SECRET || process.env.CLOUDINARY_API_SECRET,
   };
+  const changed =
+    !cachedConfig ||
+    cachedConfig.cloud_name !== next.cloud_name ||
+    cachedConfig.api_key !== next.api_key ||
+    cachedConfig.api_secret !== next.api_secret;
+  cachedConfig = next;
+  if (changed) {
+    configured = false;
+  }
   return cachedConfig;
 }
 

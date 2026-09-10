@@ -10,7 +10,7 @@
 
 import { getCloudinary, getCloudinaryCredentials } from './cloudinaryConfig';
 
-const DEFAULT_EXPIRY_SECONDS = 60 * 60; // 1 hour
+const DEFAULT_EXPIRY_SECONDS = 7 * 24 * 60 * 60; // 7 days — renew via API before expiry
 
 /**
  * Generate a signed URL for a PRIVATE Cloudinary image.

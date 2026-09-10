@@ -1256,7 +1256,7 @@ export default function AddQuiz() {
                 {formData.deadline_type === 'with_deadline' && (
                   <div style={{ marginBottom: '20px' }}>
                     <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', textAlign: 'left' }}>
-                      Deadline Date <span style={{ color: 'red' }}>*</span>
+                      Deadline Date (Egypt / Cairo) <span style={{ color: 'red' }}>*</span>
                     </label>
                     <input
                       type="date"

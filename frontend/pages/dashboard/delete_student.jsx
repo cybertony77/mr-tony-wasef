@@ -7,6 +7,7 @@ import { useStudents, useStudent, useDeleteStudent } from '../../lib/api/student
 import apiClient from '../../lib/axios';
 import { useQuery } from '@tanstack/react-query';
 import { useNationalSystem, getCourseFieldLabels } from '../../lib/api/system';
+import { sortStudentsByName } from '../../lib/sortStudentsByName';
 
 export default function DeleteStudent() {
   const router = useRouter();
@@ -98,7 +99,7 @@ export default function DeleteStudent() {
           setLastCheckedId(foundStudent.id.toString());
           setStudentId(foundStudent.id.toString());
         } else if (phoneMatches.length > 1) {
-          setSearchResults(phoneMatches);
+          setSearchResults(sortStudentsByName(phoneMatches));
           setShowSearchResults(true);
           setError(`Found ${phoneMatches.length} students. Please select one.`);
         } else {
@@ -126,7 +127,7 @@ export default function DeleteStudent() {
           setStudentId(foundStudent.id.toString());
         } else if (matchingStudents.length > 1) {
           // Multiple matches, show selection
-          setSearchResults(matchingStudents);
+          setSearchResults(sortStudentsByName(matchingStudents));
           setShowSearchResults(true);
           setError(`Found ${matchingStudents.length} students. Please select one.`);
         } else {

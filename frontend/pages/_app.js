@@ -5,6 +5,7 @@ import { MantineProvider } from '@mantine/core';
 import NextJsApp from 'next/app';
 import { useRouter } from "next/router";
 import { useEffect, useLayoutEffect, useState, useMemo } from "react";
+import Head from "next/head";
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import Header from "../components/Header";
@@ -17,6 +18,8 @@ import {
   DEFAULT_SYSTEM_BACKGROUND,
   loadSystemBackgroundFromEnv,
 } from "../lib/systemColors";
+import DevToolsProtection from "../components/DevToolsProtection";
+import { isIndexablePath } from "../lib/seo";
 
 const SYSTEM_BG_STORAGE_KEY = 'system-page-bg';
 
@@ -44,661 +47,21 @@ function applySystemBackground(value) {
   cacheSystemBackground(value);
 }
 
-// PWA Service Worker Registration handled by next-pwa
+// DevTools protection lives in components/DevToolsProtection.jsx
 
-// Function to check if device is mobile/touch and should disable devtools blocker
-function shouldDisableDevtoolsBlocker() {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-  
-  const isTouch =
-    'ontouchstart' in window ||
-    navigator.maxTouchPoints > 0;
-
-  const isMobileUA =
-    /Android|iPhone|iPad|iPod|Opera Mini|IEMobile/i.test(navigator.userAgent);
-
-  return isTouch && isMobileUA;
-}
-
-// DevTools Protection Component (blocks devtools on all pages except for developer role)
-function DevToolsProtection({ userRole, devtoolsBlockEnabled }) {
+/** Default robots for private/authenticated routes. Public pages override via SiteSeo. */
+function DefaultRobotsMeta() {
   const router = useRouter();
-  const [devToolsDetected, setDevToolsDetected] = useState(false);
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const [timer, setTimer] = useState(15);
-  const [isMobile, setIsMobile] = useState(false);
-
-  // Check if on public pages (pages that don't require authentication)
-  const currentPath = typeof window !== 'undefined' ? window.location.pathname : '';
-  const publicPagesList = [
-    '/',
-    '/sign-up',
-    '/contact_developer',
-    '/contact_assistants',
-    '/welcome',
-    '/leave-a-review',
-    '/forgot_password',
-    '/404',
-    '/student_not_found',
-    '/student_info'
-  ];
-  const isPublicPage =
-    publicPagesList.includes(currentPath) ||
-    currentPath.startsWith('/leave-a-review') ||
-    currentPath.startsWith('/api/youtube/') ||
-    currentPath.startsWith('/youtube-player/');
-
-  // Check if user is developer
-  const isDeveloper = userRole === 'developer';
-
-  // Check if mobile on mount
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setIsMobile(shouldDisableDevtoolsBlocker());
-      if (shouldDisableDevtoolsBlocker()) {
-        console.log("Devtools blocker disabled on mobile");
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    // Skip protection if devtools blocking is disabled
-    if (!devtoolsBlockEnabled) {
-      return;
-    }
-    
-    // Skip protection on mobile devices
-    if (isMobile) {
-      return;
-    }
-    
-    // Skip protection for developers
-    if (isDeveloper) {
-      return;
-    }
-
-    // Disable right-click (but allow left-click) - only for non-developers
-    const handleContextMenu = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      return false;
-    };
-
-    // Disable keyboard shortcuts - only for non-developers
-    const handleKeyDown = (e) => {
-      // Disable F12
-      if (e.key === 'F12' || e.keyCode === 123) {
-        e.preventDefault();
-        e.stopPropagation();
-        return false;
-      }
-      
-      // Disable Ctrl+Shift+I (DevTools)
-      if (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.keyCode === 73)) {
-        e.preventDefault();
-        e.stopPropagation();
-        return false;
-      }
-      
-      // Disable Ctrl+Shift+J (Console)
-      if (e.ctrlKey && e.shiftKey && (e.key === 'J' || e.key === 'j' || e.keyCode === 74)) {
-        e.preventDefault();
-        e.stopPropagation();
-        return false;
-      }
-      
-      // Disable Ctrl+Shift+C (Element Inspector)
-      if (e.ctrlKey && e.shiftKey && (e.key === 'C' || e.key === 'c' || e.keyCode === 67)) {
-        e.preventDefault();
-        e.stopPropagation();
-        return false;
-      }
-      
-      // Disable Ctrl+U (View Source)
-      if (e.ctrlKey && (e.key === 'u' || e.key === 'U' || e.keyCode === 85)) {
-        e.preventDefault();
-        e.stopPropagation();
-        return false;
-      }
-    };
-
-    // DevTools detection via outer/inner size delta from a learned baseline.
-    // Absolute thresholds (e.g. heightDiff > 160) false-trigger from normal browser
-    // chrome (tabs, address bar, bookmarks). Console timing / getter tricks are also flaky.
-    let rafId = null;
-    let lastCheck = 0;
-    const CHECK_INTERVAL = 600;
-    let detectionCount = 0;
-    const REQUIRED_DETECTIONS = 3;
-    const OPEN_DELTA = 140; // docked DevTools usually adds well above this
-    const CLOSE_DELTA = 80;
-    let baselineWidthGap = null;
-    let baselineHeightGap = null;
-    let baselineSamples = 0;
-    const BASELINE_SAMPLES_NEEDED = 4;
-    let clearCount = 0;
-
-    const readGaps = () => ({
-      widthGap: Math.max(0, window.outerWidth - window.innerWidth),
-      heightGap: Math.max(0, window.outerHeight - window.innerHeight),
-    });
-
-    const detectDevTools = () => {
-      const { widthGap, heightGap } = readGaps();
-
-      // Learn normal browser chrome while DevTools is assumed closed
-      if (baselineWidthGap === null || baselineSamples < BASELINE_SAMPLES_NEEDED) {
-        baselineWidthGap =
-          baselineWidthGap === null ? widthGap : Math.min(baselineWidthGap, widthGap);
-        baselineHeightGap =
-          baselineHeightGap === null ? heightGap : Math.min(baselineHeightGap, heightGap);
-        baselineSamples += 1;
-        detectionCount = 0;
-        clearCount = 0;
-        setDevToolsDetected(false);
-        return;
-      }
-
-      const widthIncrease = widthGap - baselineWidthGap;
-      const heightIncrease = heightGap - baselineHeightGap;
-      const looksOpen = widthIncrease > OPEN_DELTA || heightIncrease > OPEN_DELTA;
-      const looksClosed = widthIncrease < CLOSE_DELTA && heightIncrease < CLOSE_DELTA;
-
-      if (looksOpen) {
-        clearCount = 0;
-        detectionCount += 1;
-        if (detectionCount >= REQUIRED_DETECTIONS) {
-          setDevToolsDetected(true);
-          detectionCount = REQUIRED_DETECTIONS;
-        }
-        return;
-      }
-
-      if (looksClosed) {
-        detectionCount = 0;
-        clearCount += 1;
-        // Require a few clear samples before unlocking (avoids flicker)
-        if (clearCount >= 2) {
-          setDevToolsDetected(false);
-          // Gently refresh baseline so UI chrome changes (bookmarks bar, zoom) don't stick
-          baselineWidthGap = Math.min(baselineWidthGap, widthGap);
-          baselineHeightGap = Math.min(baselineHeightGap, heightGap);
-        }
-      }
-    };
-
-    const continuousCheck = (timestamp) => {
-      if (timestamp - lastCheck >= CHECK_INTERVAL) {
-        detectDevTools();
-        lastCheck = timestamp;
-      }
-      rafId = requestAnimationFrame(continuousCheck);
-    };
-
-    rafId = requestAnimationFrame(continuousCheck);
-
-    document.addEventListener('contextmenu', handleContextMenu, true);
-    document.addEventListener('keydown', handleKeyDown, true);
-    window.addEventListener('contextmenu', handleContextMenu, true);
-    window.addEventListener('keydown', handleKeyDown, true);
-
-    const handleResize = () => {
-      detectDevTools();
-    };
-    window.addEventListener('resize', handleResize);
-
-    const handleKeyDownDetection = (e) => {
-      if (
-        e.key === 'F12' ||
-        e.keyCode === 123 ||
-        (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.keyCode === 73)) ||
-        (e.ctrlKey && e.shiftKey && (e.key === 'J' || e.key === 'j' || e.keyCode === 74)) ||
-        (e.ctrlKey && e.shiftKey && (e.key === 'C' || e.key === 'c' || e.keyCode === 67))
-      ) {
-        detectDevTools();
-        setTimeout(() => detectDevTools(), 400);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDownDetection);
-
-    return () => {
-      if (rafId) {
-        cancelAnimationFrame(rafId);
-      }
-      document.removeEventListener('contextmenu', handleContextMenu, true);
-      document.removeEventListener('keydown', handleKeyDown, true);
-      window.removeEventListener('contextmenu', handleContextMenu, true);
-      window.removeEventListener('keydown', handleKeyDown, true);
-      window.removeEventListener('resize', handleResize);
-      window.removeEventListener('keydown', handleKeyDownDetection);
-    };
-  }, [isDeveloper, devtoolsBlockEnabled, isMobile]);
-
-  // Handle logout when devtools detected (only after 15 seconds if still open)
-  useEffect(() => {
-    // Skip if devtools blocking is disabled
-    if (!devtoolsBlockEnabled) {
-      return;
-    }
-    
-    // Skip on mobile devices
-    if (isMobile) {
-      return;
-    }
-    
-    // Skip for developers
-    if (isDeveloper) {
-      return;
-    }
-
-    // Check if on public pages (pages without token)
-    const currentPath = typeof window !== 'undefined' ? window.location.pathname : '';
-    const publicPagesList = [
-      '/',
-      '/sign-up',
-      '/contact_developer',
-      '/contact_assistants',
-      '/welcome',
-      '/leave-a-review',
-      '/forgot_password',
-      '/404',
-      '/student_not_found'
-    ];
-    const isPublicPage =
-      publicPagesList.includes(currentPath) || currentPath.startsWith('/leave-a-review');
-    
-    // On public pages (without token), show message but don't redirect
-    if (isPublicPage && devToolsDetected) {
-      // Just show the message, no timer or redirect
-      return;
-    }
-    
-    // For authenticated pages (with token, except developer), set up timer and redirect
-    if (devToolsDetected && !isLoggingOut && !isPublicPage) {
-      let redirectTimeout;
-      let timerInterval;
-      
-      // Reset timer to 15 when devtools detected
-      setTimer(15);
-      
-      let currentTime = 15;
-      
-      // Countdown timer that updates every second
-      timerInterval = setInterval(() => {
-        currentTime = currentTime - 1;
-        setTimer(currentTime);
-        
-        // When timer reaches 0, trigger logout immediately
-        if (currentTime <= 0) {
-          clearInterval(timerInterval);
-          setTimer(0);
-          
-          // Trigger logout immediately when timer reaches 0
-          setIsLoggingOut(true);
-          
-          // Call logout API to clear HttpOnly token cookie
-          const logout = async () => {
-            try {
-              await fetch('/api/auth/logout', {
-                method: 'POST',
-                credentials: 'include'
-              });
-            } catch (error) {
-              // Ignore errors, continue with cleanup
-            }
-            
-            // Clear all other cookies (non-HttpOnly ones)
-            const cookies = document.cookie.split(";");
-            cookies.forEach((c) => {
-              const eqPos = c.indexOf("=");
-              const name = eqPos > -1 ? c.substr(0, eqPos).trim() : c.trim();
-              if (name) {
-                document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
-                document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=${window.location.hostname}`;
-              }
-            });
-            
-            // Clear localStorage
-            try {
-              localStorage.clear();
-            } catch (e) {
-              // Ignore
-            }
-            
-            // Clear sessionStorage
-            try {
-              sessionStorage.clear();
-            } catch (e) {
-              // Ignore
-            }
-            
-            // Redirect to login
-            window.location.href = '/';
-          };
-          
-          logout();
-        }
-      }, 1000);
-      
-      // Set 15 second timer for redirect as backup (in case interval doesn't trigger)
-      redirectTimeout = setTimeout(() => {
-        // Clear timer interval if still running
-        if (timerInterval) {
-        clearInterval(timerInterval);
-        }
-        
-        // Only proceed if not already logging out
-        if (!isLoggingOut) {
-          setIsLoggingOut(true);
-          setTimer(0);
-          
-          // Call logout API to clear HttpOnly token cookie
-          const logout = async () => {
-            try {
-              await fetch('/api/auth/logout', {
-                method: 'POST',
-                credentials: 'include'
-              });
-            } catch (error) {
-              // Ignore errors, continue with cleanup
-            }
-            
-            // Clear all other cookies (non-HttpOnly ones)
-            const cookies = document.cookie.split(";");
-            cookies.forEach((c) => {
-              const eqPos = c.indexOf("=");
-              const name = eqPos > -1 ? c.substr(0, eqPos).trim() : c.trim();
-              if (name) {
-                document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
-                document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=${window.location.hostname}`;
-              }
-            });
-            
-            // Clear localStorage
-            try {
-              localStorage.clear();
-            } catch (e) {
-              // Ignore
-            }
-            
-            // Clear sessionStorage
-            try {
-              sessionStorage.clear();
-            } catch (e) {
-              // Ignore
-            }
-            
-            // Redirect to login
-            window.location.href = '/';
-          };
-          
-          logout();
-        }
-      }, 15000); // 15 seconds
-      
-      return () => {
-        if (redirectTimeout) {
-        clearTimeout(redirectTimeout);
-        }
-        if (timerInterval) {
-        clearInterval(timerInterval);
-        }
-      };
-    } else if (!devToolsDetected) {
-      // Reset timer when devtools are not detected
-      setTimer(15);
-      setIsLoggingOut(false);
-    }
-  }, [devToolsDetected, isLoggingOut, isDeveloper, devtoolsBlockEnabled, isMobile]);
-
-  // Skip all protection if devtools blocking is disabled
-  if (!devtoolsBlockEnabled) {
-    return null;
-  }
-  
-  // Skip all protection on mobile devices
-  if (isMobile) {
-    return null;
-  }
-  
-  // Skip all protection for developers
-  if (isDeveloper) {
-    return null;
-  }
-
-  // Render protection on all pages (except developer role)
-  // Show protection on all pages: public pages (without token) and authenticated pages (with token)
-  if (devToolsDetected) {
-    // Determine if current page is public (without token)
-    const currentPath = typeof window !== 'undefined' ? window.location.pathname : '';
-    const publicPagesList = [
-      '/',
-      '/sign-up',
-      '/contact_developer',
-      '/contact_assistants',
-      '/welcome',
-      '/leave-a-review',
-      '/forgot_password',
-      '/404',
-      '/student_not_found'
-    ];
-    const isPublicPage =
-      publicPagesList.includes(currentPath) || currentPath.startsWith('/leave-a-review');
-    
-    return (
-      <>
-        {/* Dark overlay background with blur */}
-        <div
-          data-devtools-overlay
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            backdropFilter: 'blur(20px)',
-            WebkitBackdropFilter: 'blur(20px)',
-            zIndex: 99999,
-            pointerEvents: 'auto',
-            cursor: 'none'
-          }}
-          onContextMenu={(e) => e.preventDefault()}
-        />
-        
-        {/* Popup message container with black background */}
-        <div
-          data-devtools-message-container
-          style={{
-            position: 'fixed',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            zIndex: 100000,
-            backgroundColor: '#000000',
-            borderRadius: '20px',
-            padding: '40px',
-            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.9)',
-            border: '2px solid rgba(255, 255, 255, 0.3)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexDirection: 'column',
-            gap: '20px',
-            minWidth: '400px',
-            maxWidth: '90%',
-            cursor: 'none',
-            pointerEvents: 'auto',
-            userSelect: 'none',
-            WebkitUserSelect: 'none',
-            MozUserSelect: 'none',
-            msUserSelect: 'none'
-          }}
-          onContextMenu={(e) => e.preventDefault()}
-        >
-          <div 
-            className="devtools-icon"
-            style={{
-              color: 'white',
-              fontSize: '3rem'
-            }}
-          >🔒</div>
-          <div 
-            className="devtools-message"
-            style={{
-              color: 'white',
-              fontSize: '1.5rem',
-              fontWeight: 'bold',
-              textAlign: 'center',
-              lineHeight: '1.5'
-            }}
-          >
-            {isPublicPage ? (
-              <>Developer tools detected. Please close them to continue.</>
-            ) : (
-              <>
-                Developer tools detected. Close them to continue or you&apos;ll be redirected to login in{' '}
-                <span className="devtools-timer" style={{
-                  color: '#1FA8DC',
-                  fontSize: '1.8rem',
-                  fontWeight: 'bold'
-                }}>{timer.toString().padStart(2, '0')}</span>
-                {' '}seconds.
-              </>
-            )}
-          </div>
-          {isLoggingOut && (
-            <div 
-              className="devtools-spinner"
-              style={{
-                width: '50px',
-                height: '50px',
-                border: '4px solid rgba(255, 255, 255, 0.3)',
-                borderTop: '4px solid #1FA8DC',
-                borderRadius: '50%',
-                animation: 'spin 1s linear infinite',
-                marginTop: '10px'
-              }} 
-            />
-          )}
-        </div>
-        
-        <style jsx global>{`
-          @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-          }
-          * {
-            cursor: none !important;
-            pointer-events: none !important;
-            user-select: none !important;
-            -webkit-user-select: none !important;
-            -moz-user-select: none !important;
-            -ms-user-select: none !important;
-          }
-          body {
-            overflow: hidden !important;
-          }
-          input, textarea, select, button, a {
-            pointer-events: none !important;
-            cursor: none !important;
-          }
-          *:focus {
-            outline: none !important;
-          }
-          [data-devtools-message-container] {
-            filter: none !important;
-            -webkit-filter: none !important;
-          }
-          [data-devtools-message-container] * {
-            filter: none !important;
-            -webkit-filter: none !important;
-          }
-          
-          /* Responsive styles for devtools message */
-          @media (max-width: 768px) {
-            [data-devtools-message-container] {
-              min-width: 90% !important;
-              max-width: 95% !important;
-              padding: 30px 20px !important;
-              border-radius: 15px !important;
-              gap: 16px !important;
-            }
-            .devtools-icon {
-              font-size: 2.5rem !important;
-            }
-            .devtools-message {
-              font-size: 1.2rem !important;
-              line-height: 1.4 !important;
-            }
-            .devtools-timer {
-              font-size: 1.5rem !important;
-            }
-            .devtools-spinner {
-              width: 40px !important;
-              height: 40px !important;
-              border-width: 3px !important;
-            }
-          }
-          
-          @media (max-width: 480px) {
-            [data-devtools-message-container] {
-              min-width: 95% !important;
-              max-width: 98% !important;
-              padding: 24px 16px !important;
-              border-radius: 12px !important;
-              gap: 14px !important;
-            }
-            .devtools-icon {
-              font-size: 2rem !important;
-            }
-            .devtools-message {
-              font-size: 1rem !important;
-              line-height: 1.3 !important;
-            }
-            .devtools-timer {
-              font-size: 1.3rem !important;
-            }
-            .devtools-spinner {
-              width: 35px !important;
-              height: 35px !important;
-              border-width: 3px !important;
-            }
-          }
-          
-          @media (max-width: 360px) {
-            [data-devtools-message-container] {
-              padding: 20px 12px !important;
-              border-radius: 10px !important;
-              gap: 12px !important;
-            }
-            .devtools-icon {
-              font-size: 1.8rem !important;
-            }
-            .devtools-message {
-              font-size: 0.9rem !important;
-              line-height: 1.2 !important;
-            }
-            .devtools-timer {
-              font-size: 1.2rem !important;
-            }
-            .devtools-spinner {
-              width: 30px !important;
-              height: 30px !important;
-              border-width: 2px !important;
-            }
-          }
-        `}</style>
-      </>
-    );
-  }
-
-  return null;
+  const path = String(router.pathname || '').split('?')[0];
+  if (isIndexablePath(path)) return null;
+  return (
+    <Head>
+      <meta key="robots" name="robots" content="noindex, nofollow" />
+      <meta key="googlebot" name="googlebot" content="noindex, nofollow" />
+    </Head>
+  );
 }
 
-// Preloader Component
 function Preloader({ background }) {
   const bg = background || DEFAULT_SYSTEM_BACKGROUND;
   return (
@@ -725,20 +88,18 @@ function Preloader({ background }) {
           position: 'relative',
           animation: 'pulse 2s ease-in-out infinite'
         }}>
-          <Image 
-            src="/logo.png" 
-            alt="American Diploma Academy Logo" 
+          <Image
+            src="/logo.png"
+            alt="Logo"
             width={150}
             height={150}
             style={{
               borderRadius: '50%',
               background: 'transparent',
-              
             }}
           />
         </div>
-        
-        {/* Loading ring */}
+
         <div style={{
           width: '50px',
           height: '50px',
@@ -748,24 +109,24 @@ function Preloader({ background }) {
           animation: 'spin 1s linear infinite'
         }} />
       </div>
-      
+
       <style jsx>{`
         @keyframes fadeIn {
           from { opacity: 0; }
           to { opacity: 1; }
         }
-        
+
         @keyframes pulse {
-          0%, 100% { 
-            transform: scale(1); 
-            opacity: 1; 
+          0%, 100% {
+            transform: scale(1);
+            opacity: 1;
           }
-          50% { 
-            transform: scale(1.05); 
-            opacity: 0.8; 
+          50% {
+            transform: scale(1.05);
+            opacity: 0.8;
           }
         }
-        
+
         @keyframes spin {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
@@ -775,7 +136,6 @@ function Preloader({ background }) {
   );
 }
 
-// Access Denied Preloader Component
 function AccessDeniedPreloader() {
   return (
     <>
@@ -954,7 +314,7 @@ export default function App({ Component, pageProps, systemBackground }) {
   const [showRedirectToLogin, setShowRedirectToLogin] = useState(false);
   const [showExpiryWarning, setShowExpiryWarning] = useState(false);
   const [userRole, setUserRole] = useState(null);
-  const [devtoolsBlockEnabled, setDevtoolsBlockEnabled] = useState(true); // Default to true for security
+  const [devtoolsBlockEnabled, setDevtoolsBlockEnabled] = useState(null); // null = loading (fail open until known)
   const [subscription, setSubscription] = useState(null);
   const [isLoadingSubscription, setIsLoadingSubscription] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState(null);
@@ -988,24 +348,35 @@ export default function App({ Component, pageProps, systemBackground }) {
     "/subscription_dashboard/cancel"
   ], []);
 
-  // Fetch DEVTOOLS_BLOCK configuration
+  // Fetch DEVTOOLS_BLOCK configuration (null until loaded; fail open on error)
   useEffect(() => {
-    if (Component?.isYoutubeEmbedShell) return undefined;
+    if (Component?.isYoutubeEmbedShell) {
+      setDevtoolsBlockEnabled(false);
+      return undefined;
+    }
+    let cancelled = false;
     const fetchConfig = async () => {
       try {
         const response = await fetch('/api/config');
-        if (response.ok) {
-          const config = await response.json();
-          // Properly check if DEVTOOLS_BLOCK is true (boolean)
+        if (!response.ok) {
+          if (!cancelled) setDevtoolsBlockEnabled(false);
+          return;
+        }
+        const config = await response.json();
+        if (!cancelled) {
           setDevtoolsBlockEnabled(config.DEVTOOLS_BLOCK === true);
         }
       } catch (error) {
-        console.error('Failed to fetch DEVTOOLS_BLOCK config:', error);
-        // Default to false if config can't be loaded (safer default)
-        setDevtoolsBlockEnabled(false);
+        if (process.env.NODE_ENV === 'development') {
+          console.error('Failed to fetch DEVTOOLS_BLOCK config:', error);
+        }
+        if (!cancelled) setDevtoolsBlockEnabled(false);
       }
     };
     fetchConfig();
+    return () => {
+      cancelled = true;
+    };
   }, [Component]);
 
   // Fetch SYSTEM_SUBSCRIPTION configuration
@@ -1585,7 +956,12 @@ export default function App({ Component, pageProps, systemBackground }) {
       <QueryClientProvider client={queryClient}>
         <ErrorBoundary>
           <MantineProvider forceColorScheme="light">
-            <DevToolsProtection userRole={userRole} devtoolsBlockEnabled={devtoolsBlockEnabled} />
+            <DefaultRobotsMeta />
+            <DevToolsProtection
+              userRole={userRole}
+              authReady={!isLoading}
+              devtoolsBlockEnabled={devtoolsBlockEnabled}
+            />
             {router.pathname === "/dashboard/student_info" ? (
               <div
                 style={{
@@ -1612,7 +988,9 @@ export default function App({ Component, pageProps, systemBackground }) {
             ) : (
               <Component {...pageProps} />
             )}
-            <ReactQueryDevtools initialIsOpen={false} />
+            {process.env.NODE_ENV === 'development' ? (
+              <ReactQueryDevtools initialIsOpen={false} />
+            ) : null}
           </MantineProvider>
         </ErrorBoundary>
       </QueryClientProvider>
@@ -1628,9 +1006,16 @@ export default function App({ Component, pageProps, systemBackground }) {
       <QueryClientProvider client={queryClient}>
         <ErrorBoundary>
           <MantineProvider forceColorScheme="light">
-            <DevToolsProtection userRole={userRole} devtoolsBlockEnabled={devtoolsBlockEnabled} />
+            <DefaultRobotsMeta />
+            <DevToolsProtection
+              userRole={userRole}
+              authReady={!isLoading}
+              devtoolsBlockEnabled={devtoolsBlockEnabled}
+            />
             <Component {...pageProps} />
-            <ReactQueryDevtools initialIsOpen={false} />
+            {process.env.NODE_ENV === 'development' ? (
+              <ReactQueryDevtools initialIsOpen={false} />
+            ) : null}
           </MantineProvider>
         </ErrorBoundary>
       </QueryClientProvider>
@@ -1641,7 +1026,12 @@ export default function App({ Component, pageProps, systemBackground }) {
     <QueryClientProvider client={queryClient}>
       <ErrorBoundary>
         <MantineProvider forceColorScheme="light">
-          <DevToolsProtection userRole={userRole} devtoolsBlockEnabled={devtoolsBlockEnabled} />
+          <DefaultRobotsMeta />
+          <DevToolsProtection
+            userRole={userRole}
+            authReady={!isLoading}
+            devtoolsBlockEnabled={devtoolsBlockEnabled}
+          />
           <div className="page-container" style={{ 
             display: 'flex', 
             flexDirection: 'column', 
@@ -1769,7 +1159,9 @@ export default function App({ Component, pageProps, systemBackground }) {
             </div>
             <Footer />
           </div>
-          <ReactQueryDevtools initialIsOpen={false} />
+          {process.env.NODE_ENV === 'development' ? (
+            <ReactQueryDevtools initialIsOpen={false} />
+          ) : null}
         </MantineProvider>
       </ErrorBoundary>
     </QueryClientProvider>

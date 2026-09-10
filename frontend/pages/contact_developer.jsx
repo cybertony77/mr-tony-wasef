@@ -4,15 +4,37 @@ import { useState, useEffect } from "react";
 import Title from "../components/Title";
 import apiClient from "../lib/axios";
 import { useSystemConfig } from "../lib/api/system";
+import SiteSeo from "../components/SiteSeo";
+import {
+  getPublicPageSeo,
+  personJsonLd,
+  absoluteUrl,
+  absoluteMediaUrl,
+  getSiteOrigin,
+} from "../lib/seo";
 
 export default function ContactDeveloperPage() {
   const router = useRouter();
   const { data: systemConfig } = useSystemConfig();
   const systemName = systemConfig?.name || 'Math Academy';
+  const seoCopy = getPublicPageSeo('/contact_developer', systemName);
   const [hasToken, setHasToken] = useState(false);
   const [loading, setLoading] = useState(true);
   const [developerPhone, setDeveloperPhone] = useState('201211172756');
   const [developerEmail, setDeveloperEmail] = useState('tony.joseph.business1717@gmail.com');
+
+  const siteOrigin = systemConfig?.domain || getSiteOrigin();
+  const developerJsonLd = personJsonLd({
+    name: 'Tony Joseph',
+    jobTitle: 'Business Owner & Software Developer',
+    url: absoluteUrl('/contact_developer', siteOrigin),
+    image: absoluteMediaUrl('/tony_joseph.jpg', siteOrigin),
+    email: developerEmail,
+    telephone: developerPhone
+      ? `+${String(developerPhone).replace(/^\+/, '')}`
+      : undefined,
+    worksFor: systemName,
+  });
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -61,6 +83,22 @@ export default function ContactDeveloperPage() {
         position: "relative",
         overflow: "hidden"
       }}>
+        <SiteSeo
+          title={seoCopy.title}
+          description={seoCopy.description}
+          path="/contact_developer"
+          image="/tony_joseph.jpg"
+          keywords={[
+            'Tony Joseph',
+            'Business Owner',
+            'Software Developer',
+            systemName,
+            'contact developer',
+          ]}
+          siteName={systemName}
+          origin={systemConfig?.domain}
+          jsonLd={developerJsonLd}
+        />
         {/* Background decorative elements */}
         <div style={{
           position: "absolute",
@@ -279,6 +317,22 @@ export default function ContactDeveloperPage() {
       position: "relative",
       overflow: "hidden"
     }}>
+      <SiteSeo
+        title={seoCopy.title}
+        description={seoCopy.description}
+        path="/contact_developer"
+        image="/tony_joseph.jpg"
+        keywords={[
+          'Tony Joseph',
+          'Business Owner',
+          'Software Developer',
+          systemName,
+          'contact developer',
+        ]}
+        siteName={systemName}
+        origin={systemConfig?.domain}
+        jsonLd={developerJsonLd}
+      />
       {/* Background decorative elements */}
       <div style={{
         position: "absolute",
