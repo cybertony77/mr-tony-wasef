@@ -123,8 +123,16 @@ export function getFreeViewsRemaining(session, studentEntry, videoPartKey = null
   if (Number.isNaN(limit) || limit <= 0) return 0;
 
   if (videoPartKey && studentEntry?.part_views && typeof studentEntry.part_views === 'object') {
-    const used = Number(studentEntry.part_views[videoPartKey]) || 0;
-    return Math.max(0, limit - used);
+    const views = studentEntry.part_views;
+    const keys = Array.isArray(videoPartKey) ? videoPartKey : [videoPartKey];
+    for (const k of keys) {
+      if (k != null && Object.prototype.hasOwnProperty.call(views, k)) {
+        const used = Number(views[k]) || 0;
+        return Math.max(0, limit - used);
+      }
+    }
+    // No usage recorded for this part yet → full limit
+    return limit;
   }
 
   const used = Number(studentEntry?.views_used ?? 0);

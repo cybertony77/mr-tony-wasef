@@ -346,6 +346,15 @@ export default async function handler(req, res) {
         ? computeAccessDeadlineDate(accessStartedAt, numberOfDays)
         : updatedVvc.deadline_date || null;
 
+    // Fresh student entry after unlock (preserves per-part views when same code re-used)
+    const studentAfter = await db.collection('students').findOne(
+      { id: studentId },
+      { projection: { online_sessions: 1 } }
+    );
+    const entryAfter = (studentAfter?.online_sessions || []).find((s) =>
+      sameId(s.video_id, session_id)
+    );
+
     return res.status(200).json({
       success: true,
       valid: true,
@@ -355,9 +364,15 @@ export default async function handler(req, res) {
       code_lesson: codeLesson,
       opened_session_id: updatedVvc.opened_session_id || sessionIdStr,
       number_of_views: updatedVvc.number_of_views || null,
+      views_per_video_limit:
+        codeSettings === 'number_of_views'
+          ? Number(entryAfter?.views_per_video_limit ?? updatedVvc.number_of_views) || 0
+          : null,
       number_of_days: numberOfDays,
       access_started_at: accessStartedAt,
       deadline_date: computedDeadline,
+      entry: entryAfter || null,
+      part_views: entryAfter?.part_views || {},
     });
   } catch (error) {
     console.error('❌ Error in VVC check API:', error);

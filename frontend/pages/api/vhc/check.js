@@ -368,6 +368,14 @@ export default async function handler(req, res) {
         ? computeAccessDeadlineDate(accessStartedAt, numberOfDays)
         : updatedVhc.deadline_date || null;
 
+    const studentAfter = await db.collection('students').findOne(
+      { id: studentId },
+      { projection: { homeworks_videos: 1 } }
+    );
+    const entryAfter = (studentAfter?.homeworks_videos || []).find((s) =>
+      sameId(s.video_id, session_id)
+    );
+
     return res.status(200).json({
       success: true,
       valid: true,
@@ -375,11 +383,17 @@ export default async function handler(req, res) {
       vhc_id: codeIdStr,
       code_settings: codeSettings,
       number_of_views: updatedVhc.number_of_views || null,
+      views_per_video_limit:
+        codeSettings === 'number_of_views'
+          ? Number(entryAfter?.views_per_video_limit ?? updatedVhc.number_of_views) || 0
+          : null,
       number_of_days: numberOfDays,
       access_started_at: accessStartedAt,
       deadline_date: computedDeadline,
       code_lesson: codeLesson,
       opened_session_id: updatedVhc.opened_session_id || sessionIdStr,
+      entry: entryAfter || null,
+      part_views: entryAfter?.part_views || {},
     });
   } catch (error) {
     console.error('❌ Error in VHC check API:', error);

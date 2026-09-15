@@ -8,6 +8,7 @@ import {
   getViewsRemainingForPart,
   makeVideoPartKey,
   normalizePartViews,
+  resolvePartViewKeys,
   resolveViewsPerVideoLimit,
 } from '../../../lib/videoPartViews';
 
@@ -58,7 +59,14 @@ export default async function handler(req, res) {
     }
 
     const studentId = parseInt(user.assistant_id || user.id);
-    const partKey = makeVideoPartKey(video_part_key || video_id, video_index);
+    // Prefer playlist index so each video slot has its own counter
+    const partKey = makeVideoPartKey(
+      video_part_key && String(video_part_key).startsWith('part_')
+        ? video_part_key
+        : video_id || video_part_key,
+      video_index
+    );
+    const legacyKeys = resolvePartViewKeys(video_id || video_part_key, video_index);
 
     client = await MongoClient.connect(MONGO_URI);
     const db = client.db(DB_NAME);
@@ -95,8 +103,8 @@ export default async function handler(req, res) {
 
     const entry = entryIdx >= 0 ? onlineSessions[entryIdx] : null;
     const limitPerVideo = resolveViewsPerVideoLimit(entry, vvcRecord.number_of_views);
-    const usedBefore = getPartViewsUsed(entry, partKey);
-    const remainingBefore = getViewsRemainingForPart(entry, limitPerVideo, partKey);
+    const usedBefore = getPartViewsUsed(entry, legacyKeys);
+    const remainingBefore = Math.max(0, limitPerVideo - usedBefore);
 
     if (remainingBefore <= 0) {
       return res.status(200).json(
@@ -108,15 +116,23 @@ export default async function handler(req, res) {
     }
 
     const partViews = normalizePartViews(entry?.part_views);
+    // Migrate: clear legacy keys for this slot so only primary part_N remains
+    for (const k of legacyKeys) {
+      if (k !== partKey && Object.prototype.hasOwnProperty.call(partViews, k)) {
+        delete partViews[k];
+      }
+    }
     partViews[partKey] = usedBefore + 1;
     const remainingAfter = Math.max(0, limitPerVideo - partViews[partKey]);
 
+    let updatedEntry = entry;
     if (entryIdx >= 0) {
-      onlineSessions[entryIdx] = {
+      updatedEntry = {
         ...entry,
         views_per_video_limit: limitPerVideo,
         part_views: partViews,
       };
+      onlineSessions[entryIdx] = updatedEntry;
       await db.collection('students').updateOne(
         { id: studentId },
         { $set: { online_sessions: onlineSessions } }
@@ -126,10 +142,12 @@ export default async function handler(req, res) {
     return res.status(200).json({
       success: true,
       message: 'Views decremented successfully',
+      // Remaining for THIS video part only — do not treat as session-wide
       number_of_views: remainingAfter,
       views_remaining_for_part: remainingAfter,
       video_part_key: partKey,
       views_per_video_limit: limitPerVideo,
+      entry: updatedEntry,
     });
   } catch (error) {
     console.error('❌ Error in VVC decrement views API:', error);

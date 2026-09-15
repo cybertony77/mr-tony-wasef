@@ -18,6 +18,11 @@ import { useProfile } from '../../../../lib/api/auth';
 import { useSystemConfig , useNationalSystem, getCourseFieldLabels} from '../../../../lib/api/system';
 import { TextInput, ActionIcon, useMantineTheme } from '@mantine/core';
 import { IconSearch, IconArrowRight } from '@tabler/icons-react';
+import {
+  buildPlayerTitle,
+  buildVideoButtonLabel,
+  withSelectedVideoMeta,
+} from '../../../../lib/videoPlayerTitle';
 
 // Extract YouTube video ID from URL
 function extractYouTubeId(url) {
@@ -276,10 +281,15 @@ export default function OnlineSessions() {
   }, [expandedSessions]);
 
   // Open video popup
-  const openVideoPopup = (session, videoId, videoType) => {
-    // videoType: 'youtube' or 'vdocipher'
-    // videoId: the video ID for that type
-    setSelectedVideo({ ...session, video_ID: videoId, video_type: videoType || 'youtube' });
+  const openVideoPopup = (session, videoId, videoType, videoIndex) => {
+    setSelectedVideo(
+      withSelectedVideoMeta(session, {
+        videoId,
+        videoIndex,
+        videoType,
+        preferSessionName: true,
+      })
+    );
     setVideoPopupOpen(true);
   };
 
@@ -726,13 +736,12 @@ export default function OnlineSessions() {
                       return videoIds.map((video, vidIndex) => {
                         // Get video type, default to 'youtube' for backward compatibility
                         const videoType = session[`video_type_${video.index}`] || 'youtube';
-                        // Get video name, default to "Video {index}" if not set
-                        const videoName = video.name || `Video ${video.index}`;
+                        const videoName = buildVideoButtonLabel(session, video.index);
                         return (
                           <div key={vidIndex} style={{ marginBottom: vidIndex < videoIds.length - 1 ? '12px' : '0' }}>
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
                               <div
-                                onClick={(e) => { e.stopPropagation(); openVideoPopup(session, video.id, videoType); }}
+                                onClick={(e) => { e.stopPropagation(); openVideoPopup(session, video.id, videoType, video.index); }}
                                 style={{
                                   flex: 1,
                                   padding: '10px 15px',
@@ -863,12 +872,11 @@ export default function OnlineSessions() {
                       return videoIds.map((video, vidIndex) => {
                         // Get video type, default to 'youtube' for backward compatibility
                         const videoType = session[`video_type_${video.index}`] || 'youtube';
-                        // Get video name, default to "Video {index}" if not set
-                        const videoName = video.name || `Video ${video.index}`;
+                        const videoName = buildVideoButtonLabel(session, video.index);
                         return (
                           <div key={vidIndex} style={{ marginBottom: vidIndex < videoIds.length - 1 ? '12px' : '0' }}>
                             <div
-                              onClick={(e) => { e.stopPropagation(); openVideoPopup(session, video.id, videoType); }}
+                              onClick={(e) => { e.stopPropagation(); openVideoPopup(session, video.id, videoType, video.index); }}
                               style={{
                                 width: '100%',
                                 padding: '10px 15px',
@@ -1007,7 +1015,11 @@ export default function OnlineSessions() {
               color: 'white',
               borderBottom: '1px solid #333'
             }}>
-              <h3 style={{ margin: 0, fontSize: '1.2rem' }}>{selectedVideo.name}</h3>
+              <h3 style={{ margin: 0, fontSize: '1.2rem' }}>
+                {selectedVideo.player_title ||
+                  buildPlayerTitle(selectedVideo, selectedVideo.video_index, { preferSessionName: true }) ||
+                  selectedVideo.name}
+              </h3>
             </div>
 
             {/* Video Iframe */}
