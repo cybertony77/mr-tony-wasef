@@ -2,6 +2,7 @@ import { MongoClient } from 'mongodb';
 import fs from 'fs';
 import path from 'path';
 import { authMiddleware } from '../../../../lib/authMiddleware';
+import {requireStaff, isForbiddenError, forbiddenJson} from '../../../../lib/requireStaff';
 import {
   createDefaultStudentLesson,
   getStudentLesson,
@@ -62,6 +63,7 @@ export default async function handler(req, res) {
     
     // Verify authentication
     const user = await authMiddleware(req);
+    await requireStaff(user);
     
     // Get the current student data
     const student = await db.collection('students').findOne({ id: student_id });
@@ -119,6 +121,8 @@ export default async function handler(req, res) {
   } catch (error) {
     if (error.message.includes('Unauthorized') || error.message.includes('Invalid token')) {
       res.status(401).json({ error: error.message });
+    } else if (isForbiddenError(error) || error.message === 'Forbidden' || String(error.message||'').includes('Forbidden')) {
+      return res.status(403).json(forbiddenJson(error));
     } else {
       console.error('Error updating quiz degree:', error);
       res.status(500).json({ error: 'Internal server error' });

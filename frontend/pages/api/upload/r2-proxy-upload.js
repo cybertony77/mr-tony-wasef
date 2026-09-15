@@ -1,27 +1,62 @@
+import path from 'path';
 import { S3Client } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import formidable from 'formidable';
 import { createReadStream, unlinkSync } from 'fs';
-import { assertR2Config, getR2Config } from '../../../lib/r2Server';
+import { authMiddleware, isAuthError } from '../../../lib/authMiddleware';
+import { assertR2Config, assertSafeObjectKey, getR2Config } from '../../../lib/r2Server';
 
 export const config = {
   api: { bodyParser: false },
 };
 
+const ALLOWED_PREFIXES = new Set([
+  'videos',
+  'pdfs/material',
+  'pdfs/HW-PDFs',
+  'pdfs/Quizs-PDFs',
+  'pdfs/MockExams-PDFs',
+]);
+
+function fieldValue(fields, name) {
+  const raw = fields?.[name];
+  return Array.isArray(raw) ? raw[0] : raw;
+}
+
+function buildObjectKey(prefix, fileName) {
+  const timestamp = Date.now();
+  const randomStr = Math.random().toString(36).substring(2, 10);
+  const baseName = path.basename(String(fileName || 'upload.bin').replace(/\\/g, '/'));
+  const sanitizedName = baseName.replace(/[^a-zA-Z0-9._-]/g, '_') || 'upload.bin';
+  return `${prefix}/${timestamp}_${randomStr}_${sanitizedName}`;
+}
+
 /**
- * Same-origin upload → server → R2 (no browser CORS to R2).
- * Uses multipart streaming so large videos need not fit in RAM.
+ * Same-origin upload → server → R2.
+ * Never returns an R2 presigned URL to the browser.
  */
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  try {
+    const user = await authMiddleware(req);
+    if (!['admin', 'developer', 'assistant'].includes(user.role)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+  } catch (error) {
+    if (isAuthError(error)) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    throw error;
+  }
+
   let cfg;
   try {
     cfg = getR2Config();
     assertR2Config(cfg);
-  } catch (e) {
+  } catch {
     return res.status(500).json({ error: 'R2 configuration is missing' });
   }
 
@@ -35,6 +70,9 @@ export default async function handler(req, res) {
   let tempPath = null;
 
   try {
+    if (typeof req.setTimeout === 'function') req.setTimeout(0);
+    if (typeof res.setTimeout === 'function') res.setTimeout(0);
+
     const { fields, files } = await new Promise((resolve, reject) => {
       const form = formidable({
         maxFileSize: 5 * 1024 * 1024 * 1024, // 5GB
@@ -52,15 +90,47 @@ export default async function handler(req, res) {
 
     tempPath = file.filepath;
 
-    const key = Array.isArray(fields.key) ? fields.key[0] : fields.key;
+    let key = fieldValue(fields, 'key');
+    const prefixRaw = String(fieldValue(fields, 'prefix') || 'videos').trim();
+    const fileName =
+      fieldValue(fields, 'fileName') || file.originalFilename || file.newFilename || 'upload.bin';
+
     if (!key) {
+      if (!ALLOWED_PREFIXES.has(prefixRaw)) {
+        try {
+          unlinkSync(tempPath);
+        } catch {
+          /* ignore */
+        }
+        tempPath = null;
+        return res.status(400).json({ error: 'Invalid upload prefix' });
+      }
+      key = buildObjectKey(prefixRaw, fileName);
+    }
+
+    try {
+      assertSafeObjectKey(key);
+    } catch (e) {
       try {
         unlinkSync(tempPath);
       } catch {
         /* ignore */
       }
       tempPath = null;
-      return res.status(400).json({ error: 'key field is required' });
+      return res.status(e.statusCode || 400).json({ error: e.message });
+    }
+
+    const allowedByPrefix = [...ALLOWED_PREFIXES].some(
+      (p) => key === p || key.startsWith(`${p}/`)
+    );
+    if (!allowedByPrefix) {
+      try {
+        unlinkSync(tempPath);
+      } catch {
+        /* ignore */
+      }
+      tempPath = null;
+      return res.status(403).json({ error: 'Access denied for this key path' });
     }
 
     const contentType = file.mimetype || 'application/octet-stream';
@@ -74,9 +144,8 @@ export default async function handler(req, res) {
         Body: bodyStream,
         ContentType: contentType,
       },
-      // Larger parts + more concurrency = fewer round-trips to R2 for multi‑GB files
       queueSize: 8,
-      partSize: 32 * 1024 * 1024, // 32 MiB parts (multipart; avoids tiny part storms)
+      partSize: 32 * 1024 * 1024,
       leavePartsOnError: false,
     });
 
@@ -85,7 +154,9 @@ export default async function handler(req, res) {
     res.json({ success: true, key });
   } catch (error) {
     console.error('R2 proxy upload error:', error);
-    res.status(500).json({ error: 'Upload failed', details: error.message });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Upload failed', details: error.message });
+    }
   } finally {
     if (tempPath) {
       try {

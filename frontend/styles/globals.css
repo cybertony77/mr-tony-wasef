@@ -112,9 +112,9 @@ button:not(:disabled):hover,
 }
 
 .react-tel-input .form-control:focus {
-  border-color: #87CEEB !important;
+  border-color: #1fa8dc !important;
   background: #ffffff !important;
-  box-shadow: 0 0 0 3px rgba(135, 206, 235, 0.1) !important;
+  box-shadow: 0 0 0 3px rgba(31, 168, 220, 0.15) !important;
 }
 
 .react-tel-input:has(.flag-dropdown.open) .form-control,

@@ -2,7 +2,8 @@ import { MongoClient } from 'mongodb';
 import fs from 'fs';
 import path from 'path';
 import { authMiddleware } from "../../../../lib/authMiddleware";
-import { verifySignature } from '../../../../lib/hmac';
+import {requireStaff, isForbiddenError, forbiddenJson} from '../../../../lib/requireStaff';
+import { verifySignature } from '../../../../lib/hmacServer';
 
 // Load environment variables from env.config
 function loadEnvConfig() {
@@ -60,8 +61,12 @@ export default async function handler(req, res) {
     // If not public access, verify authentication
     if (!isPublicAccess) {
       try {
-        await authMiddleware(req);
+        const user = await authMiddleware(req);
+        await requireStaff(user);
       } catch (authError) {
+        if (isForbiddenError(authError) || authError.message === 'Forbidden' || String(authError.message||'').includes('Forbidden')) {
+          return res.status(403).json(forbiddenJson(authError));
+        }
         if (!sig) {
           return res.status(401).json({ error: 'Unauthorized' });
         }

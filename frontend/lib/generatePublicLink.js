@@ -1,28 +1,25 @@
-import { createPublicStudentUrl } from './hmac';
+import apiClient from './axios';
 
 /**
- * Generate a public student info URL for testing
- * @param {number|string} studentId - The student ID
- * @returns {string} - The complete public URL
+ * Generate a public student info URL (server-signed HMAC).
+ * Staff-authenticated — uses /api/students/public-link
  */
-export function generatePublicStudentLink(studentId) {
-  // Get the current domain dynamically
+export async function generatePublicStudentLink(studentId) {
   let baseUrl;
-  
   if (typeof window !== 'undefined') {
-    // Client-side: use current window location
     baseUrl = `${window.location.protocol}//${window.location.host}`;
   } else {
-    // Server-side: use environment variable or default
-    baseUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.VERCEL_URL || 'http://localhost:3000';
+    baseUrl =
+      process.env.NEXT_PUBLIC_BASE_URL ||
+      process.env.VERCEL_URL ||
+      'http://localhost:3000';
   }
-  
-  const path = createPublicStudentUrl(studentId);
-  return `${baseUrl}${path}`;
+
+  const { data } = await apiClient.get('/api/students/public-link', {
+    params: { id: String(studentId) },
+  });
+
+  if (data?.url) return data.url;
+  if (data?.path) return `${baseUrl}${data.path}`;
+  throw new Error(data?.error || 'Failed to generate public link');
 }
-
-// Example usage:
-// console.log(generatePublicStudentLink(5));
-// Output: https://yourdomain.com/dashboard/student_info?id=5&sig=a1b2c3d4e5f6...
-// or http://localhost:3000/dashboard/student_info?id=5&sig=a1b2c3d4e5f6... (in development)
-

@@ -7,6 +7,9 @@ import NeedHelp from '../components/NeedHelp';
 import SiteSeo from '../components/SiteSeo';
 import { getPublicPageSeo } from '../lib/seo';
 import { useSystemConfig } from '../lib/api/system';
+import {
+  setPendingStudentLogin,
+} from '../lib/ephemeralCredentials';
 
 // API function to check VAC
 const checkVAC = async (account_id, VAC) => {
@@ -98,20 +101,10 @@ export default function SignUp() {
       // Only allow numbers for ID (account_id)
       const numericValue = value.replace(/[^0-9]/g, '');
       setForm({ ...form, [name]: numericValue });
-      // Store in sessionStorage or remove if empty
-      if (numericValue) {
-        sessionStorage.setItem('student_id', numericValue);
-      } else {
-        sessionStorage.removeItem('student_id');
-      }
+      setPendingStudentLogin(numericValue || form.id, form.password);
     } else if (name === 'password') {
       setForm({ ...form, [name]: value });
-      // Store in sessionStorage or remove if empty
-      if (value) {
-        sessionStorage.setItem('student_password', value);
-      } else {
-        sessionStorage.removeItem('student_password');
-      }
+      setPendingStudentLogin(form.id, value || '');
       // Re-validate confirm password mismatch when password changes
       if (fieldErrors.confirmPassword && form.confirmPassword && value === form.confirmPassword) {
         clearFieldError('confirmPassword');
@@ -396,6 +389,7 @@ export default function SignUp() {
       console.log('Signup data being sent:', { ...signupData, password: '***' });
       await apiClient.post('/api/auth/signup', signupData);
 
+      setPendingStudentLogin(signupData.id, signupData.password);
       setIsSubmitting(false);
       setSignupSuccess(true);
     } catch (err) {

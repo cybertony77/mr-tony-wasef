@@ -33,6 +33,8 @@ function loadEnvConfig() {
 const envConfig = loadEnvConfig();
 const MONGO_URI = envConfig.MONGO_URI || process.env.MONGO_URI;
 const DB_NAME = envConfig.DB_NAME || process.env.DB_NAME;
+const NATIONAL_SYSTEM =
+  envConfig.NATIONAL_SYSTEM === 'true' || process.env.NATIONAL_SYSTEM === 'true';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -91,7 +93,7 @@ export default async function handler(req, res) {
     const quizCourseTypeTrimmed = (quizCourseType || '').trim();
     const quizLessonTrimmed = (quizLesson || '').trim();
 
-    // Get all students and filter by course and courseType
+    // Get all students and filter by course (and courseType unless national system)
     const allStudents = await db.collection('students').find({}).toArray();
     const studentsInCourse = allStudents.filter(student => {
       if (!student.course) return false;
@@ -102,9 +104,9 @@ export default async function handler(req, res) {
       const courseMatch = quizCourseTrimmed.toLowerCase() === 'all' || 
                          quizCourseTrimmed.toLowerCase() === studentCourse.toLowerCase();
       
-      // CourseType match: if quiz has no courseType, it matches any student courseType
-      // If quiz has courseType, it must match student's courseType (case-insensitive)
-      const courseTypeMatch = !quizCourseTypeTrimmed || 
+      // CourseType match: skip when national system
+      const courseTypeMatch = NATIONAL_SYSTEM ||
+                             !quizCourseTypeTrimmed || 
                              !studentCourseType ||
                              quizCourseTypeTrimmed.toLowerCase() === studentCourseType.toLowerCase();
       

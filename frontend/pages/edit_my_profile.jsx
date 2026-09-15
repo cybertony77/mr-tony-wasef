@@ -8,6 +8,7 @@ import Image from 'next/image';
 import PhoneInput from 'react-phone-input-2';
 import 'react-phone-input-2/lib/style.css';
 import { formatPhoneForDB, validateEgyptPhone, handleEgyptPhoneKeyDown } from '../lib/phoneUtils';
+import { useFieldErrorShake, FIELD_ERROR_SHAKE_CSS } from '../lib/fieldErrorShake';
 
 export default function EditMyProfile() {
   const [form, setForm] = useState({ name: "", id: "", phone: "", email: "", password: "", profile_picture: null });
@@ -27,7 +28,14 @@ export default function EditMyProfile() {
   const { data: profile, isLoading: profileLoading, error: profileError } = useProfile();
   const { data: profilePictureUrl } = useProfilePicture();
   const updateProfileMutation = useUpdateProfile();
-  const usernameCheck = useCheckUsername(form.id);
+  const usernameCheck = useCheckUsername(form.id, originalForm?.id);
+  const usernameTaken =
+    Boolean(form.id) &&
+    form.id !== originalForm?.id &&
+    !usernameCheck.isLoading &&
+    usernameCheck.data?.exists === true;
+  const { shakeClass: usernameShakeClass, labelClass: usernameLabelClass } =
+    useFieldErrorShake(usernameTaken, form.id);
   
   // Set image preview from signed URL when available (skip while user picked a new local file)
   useEffect(() => {
@@ -390,9 +398,9 @@ export default function EditMyProfile() {
           }
           .form-input:focus {
             outline: none;
-            border-color: #667eea;
+            border-color: #1fa8dc;
             background: white;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            box-shadow: 0 0 0 3px rgba(31, 168, 220, 0.15);
           }
           .submit-btn {
             width: 100%;
@@ -492,6 +500,7 @@ export default function EditMyProfile() {
             box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.1) !important;
           }
         `}</style>
+        <style jsx global>{FIELD_ERROR_SHAKE_CSS}</style>
                  <Title backText={"Back"} href={null}>
                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                      <Image src="/user-edit2.svg" alt="Edit Profile" width={32} height={32} />
@@ -682,19 +691,10 @@ export default function EditMyProfile() {
               </small>
             </div>
 
-            <div className="form-group">
-              <label>Name</label>
+            <div className={`form-group ${usernameShakeClass}`}>
+              <label className={usernameLabelClass}>Username</label>
               <input
-                className="form-input"
-                name="name"
-                value={form.name}
-                onChange={handleChange}
-              />
-            </div>
-            <div className="form-group">
-              <label>Username</label>
-              <input
-                className={`form-input ${!usernameCheck.isLoading && usernameCheck.data && usernameCheck.data.exists && form.id !== originalForm?.id ? 'error-border' : ''}`}
+                className={`form-input ${usernameTaken ? 'error-border' : ''}`}
                 name="id"
                 placeholder="Enter username"
                 value={form.id}
@@ -714,9 +714,9 @@ export default function EditMyProfile() {
                       🔍 Checking availability...
                     </div>
                   )}
-                  {!usernameCheck.isLoading && usernameCheck.data && usernameCheck.data.exists && (
+                  {usernameTaken && (
                     <div className="username-feedback taken">
-                      ❌ This username is already taken, use anther one
+                      ❌ This username is already taken, use another one
                     </div>
                   )}
                   {!usernameCheck.isLoading && usernameCheck.data && !usernameCheck.data.exists && (
@@ -726,6 +726,15 @@ export default function EditMyProfile() {
                   )}
                 </div>
               )}
+            </div>
+            <div className="form-group">
+              <label>Name</label>
+              <input
+                className="form-input"
+                name="name"
+                value={form.name}
+                onChange={handleChange}
+              />
             </div>
             <div className="form-group">
               <label>Phone Number</label>

@@ -9,6 +9,7 @@ import { useAssistant, useAssistants, useUpdateAssistant, useCheckUsername } fro
 import PhoneInput from 'react-phone-input-2';
 import 'react-phone-input-2/lib/style.css';
 import { formatPhoneForDB, validateEgyptPhone, handleEgyptPhoneKeyDown } from '../../lib/phoneUtils';
+import { useFieldErrorShake, FIELD_ERROR_SHAKE_CSS } from '../../lib/fieldErrorShake';
 
 export default function EditAssistant() {
   const router = useRouter();
@@ -29,7 +30,14 @@ export default function EditAssistant() {
   const { data: assistant, isLoading: assistantLoading, error: assistantError } = useAssistant(searchId, { enabled: !!searchId });
   const { data: allAssistants } = useAssistants(); // Get all assistants for name search
   const updateAssistantMutation = useUpdateAssistant();
-  const usernameCheck = useCheckUsername(form.id);
+  const usernameCheck = useCheckUsername(form.id, originalForm?.id);
+  const usernameTaken =
+    Boolean(form.id) &&
+    form.id !== originalForm?.id &&
+    !usernameCheck.isLoading &&
+    usernameCheck.data?.exists === true;
+  const { shakeClass: usernameShakeClass, labelClass: usernameLabelClass } =
+    useFieldErrorShake(usernameTaken, form.id);
 
   useEffect(() => {
     // Only allow admin
@@ -369,9 +377,9 @@ export default function EditAssistant() {
           }
           .form-input:focus {
             outline: none;
-            border-color: #87CEEB;
+            border-color: #1fa8dc;
             background: white;
-            box-shadow: 0 0 0 3px rgba(135, 206, 235, 0.1);
+            box-shadow: 0 0 0 3px rgba(31, 168, 220, 0.15);
           }
           .fetch-form {
             display: flex;
@@ -391,9 +399,9 @@ export default function EditAssistant() {
           }
           .fetch-input:focus {
             outline: none;
-            border-color: #667eea;
+            border-color: #1fa8dc;
             background: white;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            box-shadow: 0 0 0 3px rgba(31, 168, 220, 0.15);
           }
           .fetch-btn {
             background: linear-gradient(135deg, #1FA8DC 0%, #87CEEB 100%);
@@ -466,7 +474,7 @@ export default function EditAssistant() {
           .submit-btn {
             width: 100%;
             padding: 16px;
-            background: linear-gradient(135deg, #87CEEB 0%, #B0E0E6 100%);
+            background: linear-gradient(135deg, #3cb8eb 0%, #2cb1c1 100%);
             color: white;
             border: none;
             border-radius: 10px;
@@ -474,21 +482,21 @@ export default function EditAssistant() {
             font-weight: 600;
             cursor: pointer;
             transition: all 0.3s ease;
-            box-shadow: 0 4px 16px rgba(135, 206, 235, 0.3);
+            box-shadow: 0 4px 16px rgba(60, 184, 235, 0.35);
             margin-top: 8px;
           }
           .submit-btn:hover:not(:disabled) {
             transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(135, 206, 235, 0.4);
+            box-shadow: 0 6px 20px rgba(60, 184, 235, 0.45);
           }
           .submit-btn:disabled {
-            background: linear-gradient(135deg, #9aa5b1 0%, #b0b8c1 100%);
-            color: rgba(255, 255, 255, 0.85);
-            opacity: 0.7;
+            background: linear-gradient(135deg, #87ceeb 0%, #b0e0e6 100%);
+            color: rgba(255, 255, 255, 0.9);
+            opacity: 1;
             cursor: not-allowed;
             transform: none;
             box-shadow: none;
-            filter: grayscale(0.35);
+            filter: none;
           }
           .success-message {
             background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
@@ -557,6 +565,7 @@ export default function EditAssistant() {
             box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.1) !important;
           }
         `}</style>
+        <style jsx global>{FIELD_ERROR_SHAKE_CSS}</style>
                  <Title 
                    backText="Back" 
                    href="/manage_assistants" 
@@ -665,10 +674,10 @@ export default function EditAssistant() {
             )}
             
             <form onSubmit={handleSubmit}>
-              <div className="form-group">
-                <label>Username</label>
+              <div className={`form-group ${usernameShakeClass}`}>
+                <label className={usernameLabelClass}>Username</label>
                 <input
-                  className={`form-input ${!usernameCheck.isLoading && usernameCheck.data && usernameCheck.data.exists && form.id !== originalForm?.id ? 'error-border' : ''}`}
+                  className={`form-input ${usernameTaken ? 'error-border' : ''}`}
                   name="id"
                   placeholder="Edit assistant username"
                   value={form.id}
@@ -688,9 +697,9 @@ export default function EditAssistant() {
                         🔍 Checking availability...
                       </div>
                     )}
-                    {!usernameCheck.isLoading && usernameCheck.data && usernameCheck.data.exists && (
+                    {usernameTaken && (
                       <div className="username-feedback taken">
-                        ❌ This username is already taken, use anther one
+                        ❌ This username is already taken, use another one
                       </div>
                     )}
                     {!usernameCheck.isLoading && usernameCheck.data && !usernameCheck.data.exists && (

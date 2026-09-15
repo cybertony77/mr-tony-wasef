@@ -13,6 +13,7 @@ import ZoomableImage from '../../../../components/ZoomableImage';
 import AccountStateSelect from '../../../../components/AccountStateSelect';
 import ImportExistingOnlineItemModal from '../../../../components/ImportExistingOnlineItemModal';
 import { formatHomeworkPickerLabel } from '../../../../lib/importOnlineItemLabels';
+import { uploadPdf, CLOUDINARY_PDF_MAX_BYTES } from '../../../../lib/pdfUpload';
 import { buildHomeworkImportFormState } from '../../../../lib/importOnlineFormState';
 import { fetchImportedQuestionImageUrls } from '../../../../lib/fetchImportedQuestionImageUrls';
 import { centersMatchDuplicateClient } from '../../../../lib/onlineItemDuplicate';
@@ -36,6 +37,8 @@ import EssayValidAnswersEditor from '../../../../components/online/EssayValidAns
 import DeadlineTimeRow from '../../../../components/DeadlineTimeRow';
 import AllowDownloadingRadio from '../../../../components/AllowDownloadingRadio';
 import UseDesmosInQuestionRadio from '../../../../components/online/UseDesmosInQuestionRadio';
+import QuestionExplanationEditor from '../../../../components/QuestionExplanationEditor';
+import { serializeExplanationVideoForDb } from '../../../../lib/explanationVideo';
 import {
   isDeadlineStrictlyInFutureEgypt,
   getEgyptYmdToday,
@@ -957,6 +960,7 @@ export default function EditHomework() {
             question_text: q.question_text || '',
             ...buildQuestionPicturesPayload(getQuestionPictures(q)),
             question_explanation: q.question_explanation || '',
+            question_explanation_video: serializeExplanationVideoForDb(q.question_explanation_video),
             use_desmos: q.use_desmos === true || q.use_desmos === 'true',
           };
           if (type === QUESTION_TYPE_ESSAY) {
@@ -1523,14 +1527,22 @@ export default function EditHomework() {
                         const file = e.target.files[0];
                         if (!file) return;
                         if (file.type !== 'application/pdf') { setPdfUploadError('Only PDF files are allowed'); return; }
-                        if (file.size > 100 * 1024 * 1024) { setPdfUploadError('File size exceeds 100MB limit'); return; }
+                        const useR2 = systemConfig?.cloudflare_r2 === true;
+                        const maxBytes = useR2 ? 100 * 1024 * 1024 : CLOUDINARY_PDF_MAX_BYTES;
+                        if (file.size > maxBytes) {
+                          const maxMb = Math.round(maxBytes / (1024 * 1024));
+                          setPdfUploadError(`File size exceeds ${maxMb}MB limit`);
+                          return;
+                        }
                         setPdfUploadError('');
                         setPdfUploading(true);
                         setPdfUploadProgress(0);
                         try {
-                          const { uploadToR2Direct } = await import('../../../../lib/r2DirectUpload');
-                          const result = await uploadToR2Direct(file, {
+                          const result = await uploadPdf(file, {
                             prefix: 'pdfs/HW-PDFs',
+                            cloudinaryFolder: 'HW-PDFs',
+                            cloudflareR2: useR2,
+                            maxR2Bytes: 100 * 1024 * 1024,
                             onProgress: (percent) => setPdfUploadProgress(percent),
                           });
                           if (result?.url) {
@@ -2175,27 +2187,14 @@ export default function EditHomework() {
                 />
 
                 {/* Question Explanation */}
-                <div style={{ marginBottom: '16px' }}>
-                  <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', textAlign: 'left' }}>
-                    Question Explanation
-                  </label>
-                  <textarea
-                    value={question.question_explanation || ''}
-                    onChange={(e) => handleQuestionChange(qIdx, 'question_explanation', e.target.value)}
-                    placeholder="Enter explanation for this question (optional)"
-                    rows={4}
-                    style={{
-                      width: '100%',
-                      padding: '12px 16px',
-                      border: '2px solid #e9ecef',
-                      borderRadius: '10px',
-                      fontSize: '1rem',
-                      fontFamily: 'inherit',
-                      resize: 'vertical',
-                      minHeight: '100px'
-                    }}
-                  />
-                </div>
+                <QuestionExplanationEditor
+                  key={`expl-${question._clientKey || qIdx}`}
+                  syncKey={String(question._clientKey || qIdx)}
+                  textValue={question.question_explanation || ''}
+                  onTextChange={(val) => handleQuestionChange(qIdx, 'question_explanation', val)}
+                  videoValue={question.question_explanation_video}
+                  onVideoChange={(val) => handleQuestionChange(qIdx, 'question_explanation_video', val)}
+                />
               </div>
                 ))}
 

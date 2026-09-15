@@ -47,9 +47,9 @@ export default async function handler(req, res) {
     let studentCourse = null;
     let studentCourseType = null;
     let studentMainCenter = null;
-  let studentIdForAccess = null;
+    let studentIdForAccess = null;
     if (user.role === 'student') {
-      const studentId = user.assistant_id || user.id;
+      const studentId = Number(user.assistant_id || user.id);
       if (!studentId) return res.status(200).json({ success: true, materials: [] });
       const student = await db.collection('students').findOne({ id: studentId });
       if (!student) return res.status(200).json({ success: true, materials: [] });

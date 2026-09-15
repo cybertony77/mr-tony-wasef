@@ -43,7 +43,7 @@ export const useProfilePicture = () => {
       const response = await apiClient.get('/api/profile-picture/signed-url');
       return response.data?.url || null;
     },
-    staleTime: 50 * 60 * 1000, // 50 minutes (signed URLs expire in 1 hour)
+    staleTime: 10 * 60 * 1000, // same-origin proxy URL; refresh periodically after uploads
     retry: 1,
     enabled: true,
   });

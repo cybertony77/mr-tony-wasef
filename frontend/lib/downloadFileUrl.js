@@ -1,18 +1,18 @@
+import { isSameOriginPdfDeliveryUrl, resolvePdfViewerUrl } from './pdfViewerUrl';
+
 /**
  * Download a PDF (or any file URL).
- * - Same-origin /api/files/* → include cookies (auth proxy)
- * - Cloudinary / external URLs → omit credentials (avoids CORS "Failed to fetch")
+ * - Same-origin /api/files/* and /api/pdf-proxy → cookies (auth proxy)
+ * - Other external URLs → fetch without credentials
  */
 export async function downloadFileUrl(url, fileName = 'file.pdf') {
   if (!url || typeof url !== 'string') {
     throw new Error('No file URL');
   }
 
-  const trimmed = url.trim();
+  const trimmed = resolvePdfViewerUrl(url.trim()) || url.trim();
   const name = fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`;
-  const isApiFiles =
-    trimmed.startsWith('/api/files/') ||
-    /\/api\/files\//.test(trimmed);
+  const isApiFiles = isSameOriginPdfDeliveryUrl(trimmed);
 
   // Prefer a direct navigation download for our auth proxy — more reliable than
   // fetch+blob for large PDFs and always sends cookies on same-origin.
@@ -27,7 +27,9 @@ export async function downloadFileUrl(url, fileName = 'file.pdf') {
     return;
   }
 
-  const res = await fetch(trimmed, { credentials: 'omit' });
+  const res = await fetch(trimmed, {
+    credentials: isApiFiles ? 'include' : 'omit',
+  });
   if (!res.ok) {
     throw new Error(`Download failed (${res.status})`);
   }

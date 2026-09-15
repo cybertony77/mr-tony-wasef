@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import path from 'path';
 import { authMiddleware } from '../../../../lib/authMiddleware';
+import {requireStaff, isForbiddenError, forbiddenJson} from '../../../../lib/requireStaff';
 
 // Load environment variables from env.config
 function loadEnvConfig() {
@@ -138,6 +139,7 @@ export default async function handler(req, res) {
     
     // Verify authentication
     const user = await authMiddleware(req);
+    await requireStaff(user);
     
     // Get student data
     const student = await db.collection('students').findOne({ id: studentId });
@@ -237,6 +239,12 @@ Thanks for choosing us 😊❤`;
 
   } catch (error) {
     console.error('WhatsApp Python Script Error:', error.message);
+    if (error.message?.includes('Unauthorized') || error.message?.includes('Invalid token') || error.message === 'No token provided') {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    if (isForbiddenError(error) || error.message === 'Forbidden' || String(error.message||'').includes('Forbidden')) {
+      return res.status(403).json(forbiddenJson(error));
+    }
     res.status(500).json({ 
       error: 'Error to send message'
     });

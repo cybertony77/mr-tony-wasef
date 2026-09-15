@@ -2,6 +2,11 @@ import { MongoClient } from 'mongodb';
 import fs from 'fs';
 import path from 'path';
 import { authMiddleware } from '../../../lib/authMiddleware';
+import {requireStaff, isForbiddenError, forbiddenJson} from '../../../lib/requireStaff';
+import {
+  buildPaymentHistoryEntry,
+  normalizePaymentHistory,
+} from '../../../lib/paymentHistory';
 
 // Load environment variables from env.config
 function loadEnvConfig() {
@@ -94,9 +99,13 @@ export default async function handler(req, res) {
     let user;
     try {
       user = await authMiddleware(req);
+      await requireStaff(user);
       console.log('✅ Authentication successful for user:', user.assistant_id);
     } catch (authError) {
       console.log('❌ Authentication failed:', authError.message);
+      if (isForbiddenError(authError) || authError.message === 'Forbidden' || String(authError.message||'').includes('Forbidden')) {
+        return res.status(403).json(forbiddenJson(authError));
+      }
       return res.status(401).json({ 
         success: false,
         error: 'Authentication failed. Please log in again.',
@@ -151,7 +160,45 @@ export default async function handler(req, res) {
       console.log('💾 Saving payment data for student:', student.name);
     }
 
-    // Update student with payment object (overwrites any existing payment)
+    const prevSessions = Number(student.payment?.numberOfSessions);
+    const prevFinite = Number.isFinite(prevSessions) ? prevSessions : 0;
+    const nextSessions = Number(paymentData.numberOfSessions);
+    const nextFinite = Number.isFinite(nextSessions) ? nextSessions : 0;
+    const history = normalizePaymentHistory(student.payment);
+
+    if (isClearOperation) {
+      const delta = prevFinite !== 0 ? -prevFinite : 0;
+      history.unshift(
+        buildPaymentHistoryEntry({
+          type: 'clear',
+          delta,
+          balanceAfter: 0,
+          reason:
+            prevFinite !== 0
+              ? `Payment cleared (removed ${prevFinite} remaining session${prevFinite === 1 ? '' : 's'})`
+              : 'Payment record cleared',
+          by: user?.name || user?.username || 'staff',
+        })
+      );
+    } else {
+      const delta = nextFinite - prevFinite;
+      if (delta !== 0) {
+        history.unshift(
+          buildPaymentHistoryEntry({
+            type: 'manual',
+            delta,
+            balanceAfter: nextFinite,
+            reason:
+              paymentData.paymentComment ||
+              `Manual payment update (${delta > 0 ? '+' : ''}${delta} sessions)`,
+            by: user?.name || user?.username || 'staff',
+          })
+        );
+      }
+    }
+
+    paymentData.paymentHistory = history.slice(0, 200);
+
     console.log('💾 Updating payment for student:', student.name);
     const result = await db.collection('students').updateOne(
       { id: parseInt(studentId) },
@@ -185,6 +232,8 @@ export default async function handler(req, res) {
         error: 'Authentication failed. Please log in again.',
         message: 'Unauthorized access'
       });
+    } else if (isForbiddenError(error) || error.message === 'Forbidden' || String(error.message||'').includes('Forbidden')) {
+      return res.status(403).json(forbiddenJson(error));
     } else if (error.message.includes('Student not found')) {
       res.status(404).json({ 
         success: false,

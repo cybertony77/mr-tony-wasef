@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
-import { useNationalSystem, getCourseFieldLabels } from '../lib/api/system';
+import { useNationalSystem, getCourseFieldLabels, useSystemConfig } from '../lib/api/system';
+import { uploadPdf, CLOUDINARY_PDF_MAX_BYTES } from '../lib/pdfUpload';
 import Image from 'next/image';
 import CourseSelect from './CourseSelect';
 import CourseTypeSelect from './CourseTypeSelect';
@@ -19,6 +20,8 @@ export default function MaterialForm({
   errorMessage = '',
 }) {
   const isNational = useNationalSystem();
+  const { data: systemConfig } = useSystemConfig();
+  const useR2 = systemConfig?.cloudflare_r2 === true;
   const courseLabels = getCourseFieldLabels(isNational);
   const [formData, setFormData] = useState({
     course: initialData?.course || '',
@@ -77,15 +80,18 @@ export default function MaterialForm({
   const handleUpload = async (file) => {
     if (!file) return;
     if (file.type !== 'application/pdf') return setPdfUploadError('Only PDF files are allowed');
-    if (file.size > 200 * 1024 * 1024) return setPdfUploadError('File size exceeds 200MB limit');
+    const maxMb = useR2 ? 200 : CLOUDINARY_PDF_MAX_BYTES / (1024 * 1024);
+    if (file.size > maxMb * 1024 * 1024) {
+      return setPdfUploadError(`File size exceeds ${maxMb}MB limit`);
+    }
     setPdfUploadError('');
     setPdfUploading(true);
     setPdfProgress(0);
     try {
-      // Use R2 (not Cloudinary) — Cloudinary free plan caps raw files at 10 MB
-      const { uploadToR2Direct } = await import('../lib/r2DirectUpload');
-      const result = await uploadToR2Direct(file, {
+      const result = await uploadPdf(file, {
         prefix: 'pdfs/material',
+        cloudinaryFolder: 'material',
+        cloudflareR2: useR2,
         onProgress: (percent) => setPdfProgress(percent),
       });
       if (result?.url) {

@@ -2,6 +2,7 @@ import { MongoClient } from 'mongodb';
 import fs from 'fs';
 import path from 'path';
 import { authMiddleware } from '../../../lib/authMiddleware';
+import {requireStaff, isForbiddenError, forbiddenJson} from '../../../lib/requireStaff';
 
 function loadEnvConfig() {
   try {
@@ -66,7 +67,11 @@ export default async function handler(req, res) {
     // Authenticate user
     console.log('🔐 Authenticating user...');
     const user = await authMiddleware(req);
-    console.log('✅ User authenticated:', user.id);
+    // Students need lesson list for their dashboard; only staff can create lessons
+    if (req.method !== 'GET') {
+      await requireStaff(user);
+    }
+    console.log('✅ User authenticated:', user.assistant_id || user.id);
 
     if (req.method === 'GET') {
       // Get all lessons
@@ -124,6 +129,10 @@ export default async function handler(req, res) {
     
     if (error.message === 'No token provided') {
       return res.status(401).json({ error: 'No token provided' });
+    }
+
+    if (isForbiddenError(error) || error.message === 'Forbidden' || String(error.message||'').includes('Forbidden')) {
+      return res.status(403).json(forbiddenJson(error));
     }
     
     res.status(500).json({ error: 'Internal server error', details: error.message });

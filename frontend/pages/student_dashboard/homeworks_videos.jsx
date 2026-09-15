@@ -24,6 +24,18 @@ import {
   getVerificationCodeMessage,
   resolveVerificationCodeError,
 } from '../../lib/verificationCodeMessages';
+import VideoUnlockPaymentChoiceModal from '../../components/VideoUnlockPaymentChoiceModal';
+import UnlockSuccessToast from '../../components/UnlockSuccessToast';
+import {
+  getVideoPartViewsRemaining,
+  getVideoAccessBracketLabel,
+} from '../../lib/videoViewsDisplay';
+import {
+  applySessionCreditUnlockToCache,
+  applyStudentArrayEntryToCache,
+  cancelStudentDetailFetches,
+  invalidateStudentDetailCaches,
+} from '../../lib/sessionCreditUnlockCache';
 
 function unlockInfoFromVhcResponse(data) {
   if (!data) return null;
@@ -96,6 +108,8 @@ export default function HomeworksVideos() {
   const { data: systemConfig } = useSystemConfig();
   const isNational = useNationalSystem();
   const isHomeworksVideosEnabled = systemConfig?.homeworks_videos === true || systemConfig?.homeworks_videos === 'true';
+  const isPaymentSystemEnabled =
+    systemConfig?.payment_system === true || systemConfig?.payment_system === 'true';
   const [expandedSessions, setExpandedSessions] = useState(new Set());
   
   // Redirect if feature is disabled
@@ -125,6 +139,11 @@ export default function HomeworksVideos() {
   const [vhcError, setVhcError] = useState('');
   const [isCheckingVhc, setIsCheckingVhc] = useState(false);
   const [pendingVideo, setPendingVideo] = useState(null); // Store video info while waiting for VHC
+  const [paymentChoiceOpen, setPaymentChoiceOpen] = useState(false);
+  const [paymentChoiceLoading, setPaymentChoiceLoading] = useState(false);
+  const [unlockToastOpen, setUnlockToastOpen] = useState(false);
+  const unlockSessionInFlightRef = useRef(false);
+  const sessionUnlockViewsDecrementDoneRef = useRef(false);
   const [unlockedSessions, setUnlockedSessions] = useState(new Map()); // Store unlocked sessions with VHC info
 
   // Auto-hide VHC popup messages after 6s
@@ -242,6 +261,17 @@ export default function HomeworksVideos() {
 
   // Helper function to check if video is unlocked
   const isVideoUnlocked = (session) => {
+    const sessionId = session._id?.toString() || session._id;
+    const redeemed = Array.isArray(studentData?.homeworks_videos)
+      ? studentData.homeworks_videos.find((s) => {
+          const videoIdStr = typeof s.video_id === 'string' ? s.video_id : s.video_id?.toString();
+          return videoIdStr === String(sessionId);
+        })
+      : null;
+    if (redeemed?.paid_with_session) {
+      return true;
+    }
+
     if (session.payment_state === 'free') {
       return true; // Free videos are always unlocked
     } else if (session.payment_state === 'free_if_homework_done') {
@@ -259,8 +289,6 @@ export default function HomeworksVideos() {
       const lessonName = session.lesson;
       return checkLessonAttendance(lessonName);
     } else if (session.payment_state === 'paid') {
-      // Check if session is in unlockedSessions
-      const sessionId = session._id?.toString() || session._id;
       const unlockedInfo = unlockedSessions.get(sessionId);
 
       if (!unlockedInfo) {
@@ -290,6 +318,38 @@ export default function HomeworksVideos() {
       return true; // Unlocked and valid
     }
     return false; // Default to locked
+  };
+
+  const isVideoPartPlayable = (session, videoId, videoIndex) => {
+    if (!isVideoUnlocked(session)) return false;
+    const sessionId = session._id?.toString() || session._id;
+    const unlockedInfo = unlockedSessions.get(sessionId);
+    const remaining = getVideoPartViewsRemaining({
+      session,
+      sessionId,
+      videoId,
+      videoIndex,
+      studentOnlineEntries: [],
+      studentHomeworkEntries: studentData?.homeworks_videos || [],
+      unlockedInfo,
+    });
+    if (remaining === null) return true;
+    return remaining > 0;
+  };
+
+  const getVideoStatusBracket = (session, videoId, videoIndex) => {
+    const sessionId = session._id?.toString() || session._id;
+    const unlockedInfo = unlockedSessions.get(sessionId);
+    return getVideoAccessBracketLabel({
+      session,
+      sessionId,
+      videoId,
+      videoIndex,
+      studentOnlineEntries: [],
+      studentHomeworkEntries: studentData?.homeworks_videos || [],
+      unlockedInfo,
+      isUnlocked: isVideoUnlocked(session),
+    });
   };
 
   // Search and filter states
@@ -419,8 +479,12 @@ export default function HomeworksVideos() {
     if (!v?.vhc_id || v.code_settings !== 'number_of_views') return;
     vhcViewsDecrementDoneRef.current = true;
     try {
+      const sessionId = typeof v._id === 'string' ? v._id : v._id.toString();
       const decrementResponse = await apiClient.post('/api/vhc/decrement-views', {
-        vhc_id: v.vhc_id
+        vhc_id: v.vhc_id,
+        session_id: sessionId,
+        video_id: v.video_ID,
+        video_part_key: v.video_ID,
       });
       if (decrementResponse.data.success) {
         const sessionId = typeof v._id === 'string' ? v._id : v._id.toString();
@@ -486,14 +550,58 @@ export default function HomeworksVideos() {
     }
   }, [profile?.id]);
 
+  const tryDecrementSessionUnlockViewsOnWatchProgress = useCallback(async () => {
+    if (sessionUnlockViewsDecrementDoneRef.current) return;
+    const v = selectedVideoRef.current;
+    if (!v?._id || !profile?.id || !studentId) return;
+    const sessionId = typeof v._id === 'string' ? v._id : v._id.toString();
+    const redeemed = Array.isArray(studentData?.homeworks_videos)
+      ? studentData.homeworks_videos.find((s) => String(s.video_id) === String(sessionId))
+      : null;
+    if (!redeemed?.paid_with_session) return;
+    sessionUnlockViewsDecrementDoneRef.current = true;
+    try {
+      const decrementResponse = await apiClient.post(
+        `/api/students/${profile.id}/watch-homework-video`,
+        {
+          session_id: sessionId,
+          action: 'decrement_session_unlock_views',
+          video_id: v.video_ID,
+          video_part_key: v.video_ID,
+        }
+      );
+      if (decrementResponse.data?.success && !decrementResponse.data?.skipped) {
+        if (decrementResponse.data.entry) {
+          applyStudentArrayEntryToCache(queryClient, studentId, {
+            arrayField: 'homeworks_videos',
+            sessionId,
+            entry: decrementResponse.data.entry,
+          });
+        } else {
+          invalidateStudentDetailCaches(queryClient, studentId);
+        }
+      } else if (!decrementResponse.data?.success) {
+        sessionUnlockViewsDecrementDoneRef.current = false;
+      }
+    } catch (err) {
+      console.error('Failed to decrement session-unlock views:', err);
+      sessionUnlockViewsDecrementDoneRef.current = false;
+    }
+  }, [profile?.id, studentId, queryClient, studentData?.homeworks_videos]);
+
   const handleWatchTenPercentHomework = useCallback(async (...args) => {
     const watchedPercent =
       typeof args[0] === 'number' ? args[0] :
         typeof args[1] === 'number' ? args[1] : 10;
     watchedTenPercentRef.current = true;
     await tryDecrementVhcViewsOnWatchProgress();
+    await tryDecrementSessionUnlockViewsOnWatchProgress();
     await postWatchAttendance(selectedVideoRef.current, watchedPercent);
-  }, [tryDecrementVhcViewsOnWatchProgress, postWatchAttendance]);
+  }, [
+    tryDecrementVhcViewsOnWatchProgress,
+    tryDecrementSessionUnlockViewsOnWatchProgress,
+    postWatchAttendance,
+  ]);
 
   const handleR2VideoCompleteHomework = useCallback(() => {
     r2CompletedRef.current = true;
@@ -504,9 +612,7 @@ export default function HomeworksVideos() {
     // Get video type, default to 'youtube' for backward compatibility
     const videoType = session[`video_type_${videoIndex}`] || 'youtube';
     
-    // Check if video is unlocked
-    if (isVideoUnlocked(session)) {
-      // Video is unlocked - check deadline date (views decrement after >=10% watch via player)
+    if (isVideoPartPlayable(session, videoId, videoIndex)) {
       const sessionId = session._id?.toString() || session._id;
       let unlockedInfo = unlockedSessions.get(sessionId);
 
@@ -610,8 +716,11 @@ export default function HomeworksVideos() {
         }
       }
 
-      // Video is locked - require VHC
       setPendingVideo({ session, videoId, videoIndex, videoType });
+      if (isPaymentSystemEnabled) {
+        setPaymentChoiceOpen(true);
+        return;
+      }
       setVhcPopupOpen(true);
       setVhc('');
       setVhcError('');
@@ -886,7 +995,8 @@ export default function HomeworksVideos() {
                           const videoType = 'youtube';
                           // Get video name, default to "Video {index}" if not set
                           const videoName = video.name || `Video ${video.index}`;
-                          const isUnlocked = isVideoUnlocked(session);
+                          const isUnlocked = isVideoPartPlayable(session, video.id, video.index);
+                          const statusBracket = getVideoStatusBracket(session, video.id, video.index);
                           return (
                             <div key={vidIndex} style={{ marginBottom: vidIndex < videoIds.length - 1 ? '12px' : '0' }}>
                               <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
@@ -921,7 +1031,10 @@ export default function HomeworksVideos() {
                                     height={20} 
                                     style={{ display: 'inline-block' }} 
                                   />
-                                  {videoName}
+                                  <span>{videoName}</span>
+                                  {statusBracket && (
+                                    <span style={{ fontSize: '0.75rem', opacity: 0.9 }}>({statusBracket})</span>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -939,6 +1052,98 @@ export default function HomeworksVideos() {
           {/* Help Text */}
           <NeedHelp style={{ padding: "20px", borderTop: "1px solid #e9ecef" }} />
         </div>
+
+        <VideoUnlockPaymentChoiceModal
+          isOpen={paymentChoiceOpen}
+          onClose={() => {
+            if (paymentChoiceLoading) return;
+            setPaymentChoiceOpen(false);
+            setPendingVideo(null);
+          }}
+          loading={paymentChoiceLoading}
+          sessionsAvailable={Number(studentData?.payment?.numberOfSessions) || 0}
+          paymentState={pendingVideo?.session?.payment_state || ''}
+          codeLabel="Use VHC Code"
+          onUseCode={() => {
+            setPaymentChoiceOpen(false);
+            setVhcPopupOpen(true);
+          }}
+          onConfirmSession={async () => {
+            if (!pendingVideo || !profile?.id) {
+              throw new Error('Video is not ready. Please try again.');
+            }
+            if (paymentChoiceLoading || unlockSessionInFlightRef.current) return;
+            unlockSessionInFlightRef.current = true;
+            setPaymentChoiceLoading(true);
+            try {
+              const pending = pendingVideo;
+              const sessionId = pending.session._id?.toString();
+              const videoType =
+                pending.videoType ||
+                pending.session[`video_type_${pending.videoIndex}`] ||
+                'youtube';
+              const unlockRes = await apiClient.post(
+                `/api/students/${profile.id}/unlock-paid-content-with-session`,
+                {
+                  session_id: sessionId,
+                  content_type: 'homework_video',
+                  video_id: pending.videoId,
+                  video_index: pending.videoIndex,
+                  lesson: pending.session.lesson || pending.session.name,
+                }
+              );
+              await cancelStudentDetailFetches(queryClient, studentId || profile.id);
+              applySessionCreditUnlockToCache(queryClient, studentId || profile.id, {
+                arrayField: 'homeworks_videos',
+                sessionId,
+                videoId: pending.videoId,
+                videoIndex: pending.videoIndex,
+                numberOfSessions: unlockRes.data?.numberOfSessions,
+              });
+              if (unlockRes.data?.entry) {
+                applyStudentArrayEntryToCache(queryClient, studentId || profile.id, {
+                  arrayField: 'homeworks_videos',
+                  sessionId,
+                  entry: {
+                    ...unlockRes.data.entry,
+                    paid_with_session: true,
+                    views_per_video_limit:
+                      unlockRes.data.entry.views_per_video_limit ?? 1,
+                  },
+                });
+              }
+              setPaymentChoiceOpen(false);
+              setPendingVideo(null);
+              setUnlockToastOpen(true);
+              setSelectedVideo({
+                ...pending.session,
+                video_ID: pending.videoId,
+                video_type: videoType,
+              });
+              setVideoPopupOpen(true);
+              videoStartTimeRef.current = Date.now();
+              r2CompletedRef.current = false;
+              watchedTenPercentRef.current = false;
+              sessionUnlockViewsDecrementDoneRef.current = false;
+              vhcViewsDecrementDoneRef.current = false;
+              attendancePostedRef.current = false;
+              setTimeout(() => {
+                invalidateStudentDetailCaches(queryClient, studentId || profile.id);
+              }, 1500);
+            } finally {
+              unlockSessionInFlightRef.current = false;
+              setPaymentChoiceLoading(false);
+            }
+          }}
+        />
+
+        <UnlockSuccessToast
+          open={unlockToastOpen}
+          title="Video unlocked"
+          message="1 view is now available."
+          onClose={() => setUnlockToastOpen(false)}
+          aboveVideo={videoPopupOpen}
+        />
 
         {/* VHC Popup */}
         {vhcPopupOpen && (
@@ -970,8 +1175,12 @@ export default function HomeworksVideos() {
                 padding: '40px',
                 maxWidth: '450px',
                 width: '100%',
+                margin: 'auto',
                 boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
-                border: '1px solid rgba(255,255,255,0.2)'
+                border: '1px solid rgba(255,255,255,0.2)',
+                maxHeight: '90vh',
+                overflowY: 'auto',
+                boxSizing: 'border-box'
               }}
               onClick={(e) => e.stopPropagation()}
             >
@@ -1017,7 +1226,8 @@ export default function HomeworksVideos() {
                   backgroundColor: '#ffffff',
                   transition: 'all 0.3s ease',
                   boxShadow: vhcError ? '0 0 0 4px rgba(220, 53, 69, 0.1)' : '0 2px 8px rgba(0,0,0,0.08)',
-                  outline: 'none'
+                  outline: 'none',
+                  boxSizing: 'border-box'
                 }}
                 onFocus={(e) => {
                   e.target.style.border = '3px solid #1FA8DC';
@@ -1107,7 +1317,7 @@ export default function HomeworksVideos() {
         {/* Video Player Popup */}
         {videoPopupOpen && selectedVideo && (
           <div
-            className="video-popup-overlay"
+            className={`video-popup-overlay${unlockToastOpen ? ' video-popup-overlay--with-toast' : ''}`}
             style={{
               position: 'fixed',
               top: 0,
@@ -1120,7 +1330,8 @@ export default function HomeworksVideos() {
               alignItems: 'center',
               justifyContent: 'center',
               zIndex: 2000,
-              padding: '20px'
+              padding: '20px',
+              boxSizing: 'border-box',
             }}
             onClick={(e) => {
               if (e.target === e.currentTarget) {
@@ -1361,6 +1572,10 @@ export default function HomeworksVideos() {
               display: none !important;
             }
           }
+
+          .video-popup-overlay--with-toast {
+            padding-bottom: max(100px, calc(84px + env(safe-area-inset-bottom, 0px))) !important;
+          }
           
           @media (max-width: 768px) {
             .page-wrapper {
@@ -1378,6 +1593,10 @@ export default function HomeworksVideos() {
             
             .video-popup-overlay {
               padding: 10px !important;
+            }
+
+            .video-popup-overlay--with-toast {
+              padding-bottom: max(96px, calc(72px + env(safe-area-inset-bottom, 0px))) !important;
             }
             
             .video-player-container {
@@ -1416,6 +1635,10 @@ export default function HomeworksVideos() {
             
             .video-popup-overlay {
               padding: 5px !important;
+            }
+
+            .video-popup-overlay--with-toast {
+              padding-bottom: max(88px, calc(68px + env(safe-area-inset-bottom, 0px))) !important;
             }
             
             .video-player-container {

@@ -1,14 +1,12 @@
-import { GetObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import {
-  assertR2Config,
-  assertSafeObjectKey,
-  createR2S3ClientForGetPresign,
-  getR2Config,
-} from '../../../lib/r2Server';
-
-/** Max SigV4 presign (7d). Client renews before expiry so playback never stalls. */
-const PRESIGN_GET_EXPIRES_SEC = 7 * 24 * 60 * 60; // 7 days
+/**
+ * R2 video playback via same-origin authenticated proxy.
+ * Presigned R2 URLs never reach the browser.
+ *
+ * Previously returned { signedUrl }. Now returns a same-origin path only.
+ * Kept for backward compatibility — prefer using /api/files/... directly.
+ */
+import { authMiddleware, isAuthError } from '../../../lib/authMiddleware';
+import { assertSafeObjectKey } from '../../../lib/r2Server';
 
 function getKeyFromRequest(req) {
   if (req.method === 'GET') {
@@ -19,14 +17,21 @@ function getKeyFromRequest(req) {
   return req.body?.key;
 }
 
+function buildFilesProxyPath(key) {
+  return `/api/files/${String(key)
+    .split('/')
+    .filter(Boolean)
+    .map((s) => encodeURIComponent(s))
+    .join('/')}`;
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    const cfg = getR2Config();
-    assertR2Config(cfg);
+    await authMiddleware(req);
 
     let key;
     try {
@@ -36,29 +41,25 @@ export default async function handler(req, res) {
       return res.status(e.statusCode || 400).json({ error: e.message });
     }
 
-    const s3Client = createR2S3ClientForGetPresign(cfg);
-
-    const command = new GetObjectCommand({
-      Bucket: cfg.bucketName,
-      Key: key,
-    });
-
-    const signedUrl = await getSignedUrl(s3Client, command, {
-      expiresIn: PRESIGN_GET_EXPIRES_SEC,
-    });
+    if (!String(key).startsWith('videos/')) {
+      return res.status(403).json({ error: 'Only video keys are allowed' });
+    }
 
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
 
+    // Same-origin proxy URL — no R2 presigned URL in the response
     res.json({
-      signedUrl,
-      expiresIn: PRESIGN_GET_EXPIRES_SEC,
+      url: buildFilesProxyPath(key),
     });
   } catch (error) {
+    if (isAuthError(error)) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
     console.error('R2 video URL error:', error);
     const status = error.statusCode || 500;
     res.status(status).json({
-      error: 'Failed to generate video URL',
+      error: 'Failed to resolve video URL',
       details: error.message,
     });
   }

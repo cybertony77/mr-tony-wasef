@@ -5,6 +5,7 @@ import { useStudents, useStudent, useSavePayment } from '../../lib/api/students'
 import LoadingSkeleton from '../../components/LoadingSkeleton';
 import Image from 'next/image';
 import { sortStudentsByName } from '../../lib/sortStudentsByName';
+import PaymentHistoryModal from '../../components/PaymentHistoryModal';
 
 export default function Payment() {
   const containerRef = useRef(null);
@@ -24,6 +25,7 @@ export default function Payment() {
   const [paymentComment, setPaymentComment] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
   const [isClearing, setIsClearing] = useState(false);
+  const [paymentHistoryOpen, setPaymentHistoryOpen] = useState(false);
 
   // Get all students for search functionality
   const { data: allStudents, isLoading: allStudentsLoading } = useStudents();
@@ -413,13 +415,13 @@ export default function Payment() {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 16px;
-            margin-bottom: 30px;
+            margin-bottom: 0;
           }
           
           .student-details .detail-item:last-child:nth-child(odd) {
             grid-column: 1 / -1;
           }
-          .detail-item { padding: 20px; background: #ffffff; border-radius: 12px; border: 2px solid #e9ecef; border-left: 4px solid #1FA8DC; box-shadow: 0 2px 8px rgba(0,0,0,0.05); transition: all 0.3s ease; }
+          .detail-item { padding: 20px; background: #ffffff; border-radius: 12px; border: 2px solid #e9ecef; border-left: 4px solid cadetblue; box-shadow: 0 2px 8px rgba(0,0,0,0.05); transition: all 0.3s ease; }
           .detail-label { font-weight: 700; color: #6c757d; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
           .detail-value { font-size: 1rem; color: #212529; font-weight: 600; line-height: 1.4; }
           .payment-form { background: white; border-radius: 16px; padding: 24px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); }
@@ -510,6 +512,28 @@ export default function Payment() {
           .clear-btn:hover {
             background: linear-gradient(90deg, #c82333 0%, #bd2130 100%);
             transform: translateY(-1px);
+          }
+          .payment-history-trigger {
+            margin-top: 16px;
+            width: 100%;
+            padding: 13px 18px;
+            border-radius: 12px;
+            border: none;
+            background: linear-gradient(135deg, #6fb0b2 0%, cadetblue 50%, #4f888a 100%);
+            color: #fff;
+            font-weight: 700;
+            font-size: 0.95rem;
+            cursor: pointer;
+            box-shadow: 0 6px 20px rgba(95, 158, 160, 0.4);
+            transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+          }
+          .payment-history-trigger:hover {
+            filter: brightness(1.05);
+            transform: translateY(-1px);
+            box-shadow: 0 8px 24px rgba(95, 158, 160, 0.48);
+          }
+          .payment-history-trigger:active {
+            transform: translateY(0);
           }
           .search-results {
             margin-top: 16px;
@@ -697,8 +721,21 @@ export default function Payment() {
                 <div className="detail-value">{student.payment?.date || 'No date'}</div>
               </div>
             </div>
+            <button
+              type="button"
+              className="payment-history-trigger"
+              onClick={() => setPaymentHistoryOpen(true)}
+            >
+              View payment history
+            </button>
           </div>
         )}
+
+        <PaymentHistoryModal
+          isOpen={paymentHistoryOpen}
+          onClose={() => setPaymentHistoryOpen(false)}
+          history={student?.payment?.paymentHistory}
+        />
 
         {/* Spacing between info and payment sections */}
         {student && <div style={{ height: 20 }} />}

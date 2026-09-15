@@ -208,12 +208,26 @@ export default async function handler(req, res) {
 
           return {
             device_id: d.device_id || '—',
-            ip: d.last_ip || d.ip || 'unknown',
             browser: d.browser || 'Unknown',
             os: d.os || 'Unknown',
             device_type: d.device_type || 'desktop',
             first_login: firstLogin,
             last_login: deviceLastLogin,
+            ...(user.role === 'developer'
+              ? {
+                  last_ip: d.last_ip || d.ip || 'unknown',
+                  ip: d.last_ip || d.ip || 'unknown',
+                  ip_history: Array.isArray(d.ip_history)
+                    ? d.ip_history.map((h) => ({
+                        ip: h?.ip || 'unknown',
+                        last_seen:
+                          h?.last_seen instanceof Date
+                            ? formatDateTime(h.last_seen)
+                            : h?.last_seen || null,
+                      }))
+                    : [],
+                }
+              : {}),
           };
         });
 
@@ -248,7 +262,8 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'PATCH') {
-      const { id, allowed_devices } = req.body;
+      // Only allow updating allowed_devices — never accept IP / fingerprint from body
+      const { id, allowed_devices } = req.body || {};
 
       if (!id) {
         return res.status(400).json({ error: 'invalid_id' });

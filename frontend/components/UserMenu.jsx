@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useQuery } from '@tanstack/react-query';
 import { useProfile, useProfilePicture } from '../lib/api/auth';
-import { useSubscription } from '../lib/api/subscription';
+import { useSubscriptionStatus } from '../lib/api/subscription';
 import { useStudent } from '../lib/api/students';
 import { useSystemConfig, useNationalSystem, getCourseFieldLabels } from '../lib/api/system';
 import QRCodeModal from './QRCodeModal';
@@ -27,7 +27,6 @@ export default function UserMenu() {
   
   // Use React Query to get user profile data
   const { data: user, isLoading, error } = useProfile();
-  const { data: subscription } = useSubscription();
   const { data: profilePictureUrl } = useProfilePicture();
   const { data: systemConfig } = useSystemConfig();
   const isNational = useNationalSystem();
@@ -36,6 +35,15 @@ export default function UserMenu() {
   const isSubscriptionEnabled = systemConfig?.subscription === true || systemConfig?.subscription === 'true';
   const isMarketingSystemEnabled =
     systemConfig?.marketing_page === true || systemConfig?.marketing_page === 'true';
+
+  // Fallback user object if data is not available yet
+  const userData = user || { name: '', id: '', phone: '', role: '' };
+  const canSeeSubscriptionTimer = userData.role && userData.role !== 'student';
+
+  // Remaining time for all non-student roles (status endpoint only)
+  const { data: subscription } = useSubscriptionStatus({
+    enabled: Boolean(isSubscriptionEnabled && canSeeSubscriptionTimer),
+  });
 
   const { data: mpVisibility } = useQuery({
     queryKey: ['marketing-page-visibility'],
@@ -54,9 +62,6 @@ export default function UserMenu() {
   });
   const publicTestimonialsPending = publicTestimonialsData?.pendingCount || 0;
 
-  // Fallback user object if data is not available yet
-  const userData = user || { name: '', id: '', phone: '', role: '' };
-
   const showMarketingPageMenu =
     Boolean(isMarketingSystemEnabled) &&
     (mpVisibility?.page_state !== false ||
@@ -72,22 +77,14 @@ export default function UserMenu() {
   const hasLoggedOutRef = useRef(false); // Track if we've already called logout
 
   useEffect(() => {
+    // Admin/assistant/developer see remaining time in the menu
+    if (!isSubscriptionEnabled || !canSeeSubscriptionTimer) {
+      setTimeRemaining(null);
+      hasLoggedOutRef.current = false;
+      return;
+    }
+
     const isDeveloper = userData.role === 'developer';
-    const isStudent = userData.role === 'student';
-
-    // Don't run subscription timer if subscription system is disabled
-    if (!isSubscriptionEnabled) {
-      setTimeRemaining(null);
-      hasLoggedOutRef.current = false;
-      return;
-    }
-
-    // Don't show subscription timer for students
-    if (isStudent) {
-      setTimeRemaining(null);
-      hasLoggedOutRef.current = false;
-      return;
-    }
 
     // Simple logic: if active = false AND date_of_expiration = null, show expired
     // Otherwise, if date_of_expiration exists, calculate timer
@@ -134,10 +131,11 @@ export default function UserMenu() {
       // Update timer with calculated values (always set, even if zero)
       setTimeRemaining({ days, hours, minutes, seconds });
 
-      // Check if all time components are zero (00:00:00:00) or diff <= 0
-      // Only auto-logout for non-developers
-      if (!isDeveloper && (diff <= 0 || (days === 0 && hours === 0 && minutes === 0 && seconds === 0))) {
-        // If timer reaches 00:00:00:00, delete token and redirect to login
+      // Auto-logout admin/assistant when timer hits zero (developers stay signed in)
+      if (
+        !isDeveloper &&
+        (diff <= 0 || (days === 0 && hours === 0 && minutes === 0 && seconds === 0))
+      ) {
         if (!hasLoggedOutRef.current) {
           hasLoggedOutRef.current = true;
           (async () => {
@@ -167,7 +165,7 @@ export default function UserMenu() {
       clearInterval(interval);
       hasLoggedOutRef.current = false; // Reset logout flag when effect cleans up
     };
-  }, [subscription, userData.role, router, isSubscriptionEnabled]);
+  }, [subscription, canSeeSubscriptionTimer, userData.role, router, isSubscriptionEnabled]);
 
   useEffect(() => {
     function handleClickOutside(e) {
@@ -389,7 +387,7 @@ export default function UserMenu() {
               </>
             )}
           </div>
-          {isSubscriptionEnabled && subscription && userData.role !== 'student' && (
+          {isSubscriptionEnabled && canSeeSubscriptionTimer && subscription && (
             <div style={{
               padding: '12px 20px',
               borderBottom: '1px solid #e9ecef',
@@ -513,8 +511,8 @@ export default function UserMenu() {
                         router.push('/dashboard/students_reviews');
                       }}
                     >
-                      <Image src="/testimonials2.svg" alt="Students Reviews" width={20} height={20} style={{ marginRight: '8px' }} />
-                      Students Reviews
+                      <Image src="/testimonials2.svg" alt="Manage Students Reviews" width={20} height={20} style={{ marginRight: '8px' }} />
+                      Manage Students Reviews
                       {publicTestimonialsPending > 0 ? (
                         <span
                           style={{

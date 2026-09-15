@@ -2,14 +2,15 @@ import { MongoClient } from 'mongodb';
 import fs from 'fs';
 import path from 'path';
 import { authMiddleware, isAuthError } from '../../../lib/authMiddleware';
+import {
+  invalidateSubscriptionStatusCache,
+} from '../../../lib/subscriptionGuard';
 
-// Load environment variables from env.config
 function loadEnvConfig() {
   try {
     const envPath = path.join(process.cwd(), '..', 'env.config');
     const envContent = fs.readFileSync(envPath, 'utf8');
     const envVars = {};
-
     envContent.split('\n').forEach((line) => {
       const trimmed = line.trim();
       if (trimmed && !trimmed.startsWith('#')) {
@@ -17,15 +18,13 @@ function loadEnvConfig() {
         if (index !== -1) {
           const key = trimmed.substring(0, index).trim();
           let value = trimmed.substring(index + 1).trim();
-          value = value.replace(/^"|"$/g, ''); // strip quotes
+          value = value.replace(/^"|"$/g, '');
           envVars[key] = value;
         }
       }
     });
-
     return envVars;
-  } catch (error) {
-    console.log('⚠️  Could not read env.config, using process.env as fallback');
+  } catch {
     return {};
   }
 }
@@ -33,8 +32,6 @@ function loadEnvConfig() {
 const envConfig = loadEnvConfig();
 const MONGO_URI = envConfig.MONGO_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/topphysics';
 const DB_NAME = envConfig.DB_NAME || process.env.DB_NAME || 'mr-george-magdy';
-
-console.log('🔗 Using Mongo URI:', MONGO_URI);
 
 async function requireDeveloper(req) {
   const user = await authMiddleware(req);
@@ -46,15 +43,12 @@ async function requireDeveloper(req) {
   return user;
 }
 
-// Auto-expire subscription if expired
 async function checkAndExpireSubscription(db) {
   const subscription = await db.collection('subscription').findOne({});
   if (subscription && subscription.active && subscription.date_of_expiration) {
     const now = new Date();
     const expirationDate = new Date(subscription.date_of_expiration);
-
     if (now >= expirationDate) {
-      console.log('⏰ Subscription expired, auto-deactivating...');
       await db.collection('subscription').updateOne(
         {},
         {
@@ -68,23 +62,21 @@ async function checkAndExpireSubscription(db) {
           },
         }
       );
+      invalidateSubscriptionStatusCache();
       return true;
     }
   }
   return false;
 }
 
+/**
+ * Full subscription CRUD — DEVELOPER ONLY (read + write).
+ * Admin/assistant must use GET /api/subscription/status for timer/warning only.
+ */
 export default async function handler(req, res) {
   let client;
   try {
-    // Validate auth before DB work so expired/missing tokens always return 401
-    if (req.method === 'GET' || req.method === 'PATCH') {
-      await authMiddleware(req);
-    } else if (req.method === 'POST' || req.method === 'PUT') {
-      await requireDeveloper(req);
-    } else {
-      return res.status(405).json({ error: 'Method not allowed' });
-    }
+    await requireDeveloper(req);
 
     client = await MongoClient.connect(MONGO_URI);
     const db = client.db(DB_NAME);
@@ -131,6 +123,7 @@ export default async function handler(req, res) {
               },
             }
           );
+          invalidateSubscriptionStatusCache();
           return res.json({ success: true, message: 'Subscription expired' });
         }
         return res.status(400).json({ error: 'Subscription has not expired yet' });
@@ -149,7 +142,12 @@ export default async function handler(req, res) {
       const existingSubscription = await db.collection('subscription').findOne({});
       const now = new Date();
 
-      if (!overwrite && existingSubscription && existingSubscription.active && existingSubscription.date_of_expiration) {
+      if (
+        !overwrite &&
+        existingSubscription &&
+        existingSubscription.active &&
+        existingSubscription.date_of_expiration
+      ) {
         const expirationDate = new Date(existingSubscription.date_of_expiration);
         if (now < expirationDate) {
           return res.status(409).json({
@@ -163,15 +161,25 @@ export default async function handler(req, res) {
       const date_of_expiration = new Date(date_of_subscription);
 
       if (duration_type === 'yearly') {
-        date_of_expiration.setFullYear(date_of_expiration.getFullYear() + parseInt(subscription_duration));
+        date_of_expiration.setFullYear(
+          date_of_expiration.getFullYear() + parseInt(subscription_duration, 10)
+        );
       } else if (duration_type === 'monthly') {
-        date_of_expiration.setMonth(date_of_expiration.getMonth() + parseInt(subscription_duration));
+        date_of_expiration.setMonth(
+          date_of_expiration.getMonth() + parseInt(subscription_duration, 10)
+        );
       } else if (duration_type === 'daily') {
-        date_of_expiration.setDate(date_of_expiration.getDate() + parseInt(subscription_duration));
+        date_of_expiration.setDate(
+          date_of_expiration.getDate() + parseInt(subscription_duration, 10)
+        );
       } else if (duration_type === 'hourly') {
-        date_of_expiration.setHours(date_of_expiration.getHours() + parseInt(subscription_duration));
+        date_of_expiration.setHours(
+          date_of_expiration.getHours() + parseInt(subscription_duration, 10)
+        );
       } else if (duration_type === 'minutely') {
-        date_of_expiration.setMinutes(date_of_expiration.getMinutes() + parseInt(subscription_duration));
+        date_of_expiration.setMinutes(
+          date_of_expiration.getMinutes() + parseInt(subscription_duration, 10)
+        );
       }
 
       const durationLabel =
@@ -185,7 +193,9 @@ export default async function handler(req, res) {
                 ? 'hour'
                 : 'minute';
       const subscriptionData = {
-        subscription_duration: `${subscription_duration} ${durationLabel}${parseInt(subscription_duration) > 1 ? 's' : ''}`,
+        subscription_duration: `${subscription_duration} ${durationLabel}${
+          parseInt(subscription_duration, 10) > 1 ? 's' : ''
+        }`,
         date_of_subscription,
         date_of_expiration,
         cost: parseFloat(cost),
@@ -193,7 +203,10 @@ export default async function handler(req, res) {
         active: true,
       };
 
-      await db.collection('subscription').updateOne({}, { $set: subscriptionData }, { upsert: true });
+      await db
+        .collection('subscription')
+        .updateOne({}, { $set: subscriptionData }, { upsert: true });
+      invalidateSubscriptionStatusCache();
 
       return res.json({ success: true, subscription: subscriptionData });
     }
@@ -212,6 +225,7 @@ export default async function handler(req, res) {
           },
         }
       );
+      invalidateSubscriptionStatusCache();
 
       return res.json({ success: true });
     }
@@ -231,11 +245,7 @@ export default async function handler(req, res) {
       });
     }
 
-    console.error('❌ Subscription API error:', {
-      message: error.message,
-      stack: error.stack,
-      name: error.name,
-    });
+    console.error('Subscription API error:', error?.message || error);
     return res.status(500).json({
       error: 'Internal server error',
       details: error.message,

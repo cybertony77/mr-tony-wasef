@@ -2,15 +2,14 @@ import { MongoClient } from 'mongodb';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { hashPasswordResetToken } from '../../../../lib/authSecrets';
 
-// Load environment variables from env.config
 function loadEnvConfig() {
   try {
     const envPath = path.join(process.cwd(), '..', 'env.config');
     const envContent = fs.readFileSync(envPath, 'utf8');
     const envVars = {};
-    
-    envContent.split('\n').forEach(line => {
+    envContent.split('\n').forEach((line) => {
       const trimmed = line.trim();
       if (trimmed && !trimmed.startsWith('#')) {
         const index = trimmed.indexOf('=');
@@ -22,10 +21,8 @@ function loadEnvConfig() {
         }
       }
     });
-    
     return envVars;
-  } catch (error) {
-    console.log('⚠️  Could not read env.config, using process.env as fallback');
+  } catch {
     return {};
   }
 }
@@ -33,13 +30,6 @@ function loadEnvConfig() {
 const envConfig = loadEnvConfig();
 const MONGO_URI = envConfig.MONGO_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/topphysics';
 const DB_NAME = envConfig.DB_NAME || process.env.DB_NAME || 'topphysics';
-const JWT_SECRET = envConfig.JWT_SECRET || process.env.JWT_SECRET || 'topphysics_secret';
-
-// Generate HMAC signature
-function generateHMAC(id) {
-  const message = id + 'rest_pass_from_otp';
-  return crypto.createHmac('sha256', JWT_SECRET).update(message).digest('hex');
-}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -64,57 +54,55 @@ export default async function handler(req, res) {
 
     const userId = /^\d+$/.test(safeId) ? Number(safeId) : safeId;
     const user = await db.collection('users').findOne({
-      $or: [
-        { id: userId },
-        { id: safeId }
-      ]
+      $or: [{ id: userId }, { id: safeId }],
     });
 
     if (!user) {
       return res.status(404).json({ error: 'User not found', valid: false });
     }
 
-    // Verify HMAC signature
-    // The signature itself proves that OTP was verified, since it's only generated after successful OTP verification
-    const expectedSig = generateHMAC(user.id.toString());
+    const otpData = user.OTP_rest_password;
+    if (otpData && otpData.used === true) {
+      return res.json({
+        valid: false,
+        error: 'OTP has already been used. Please request a new OTP.',
+      });
+    }
+
+    const storedHash = otpData?.reset_token_hash;
+    const expires = otpData?.reset_token_expires
+      ? new Date(otpData.reset_token_expires)
+      : null;
+
+    if (!storedHash || !expires) {
+      return res.json({
+        valid: false,
+        error: 'OTP session has expired. Please request a new OTP.',
+      });
+    }
+
+    if (new Date() > expires) {
+      return res.json({
+        valid: false,
+        error: 'OTP session has expired. Please request a new OTP.',
+      });
+    }
+
+    const incomingHash = hashPasswordResetToken(sig);
     let isValid = false;
     try {
       isValid = crypto.timingSafeEqual(
-        Buffer.from(sig),
-        Buffer.from(expectedSig)
+        Buffer.from(incomingHash, 'utf8'),
+        Buffer.from(String(storedHash), 'utf8')
       );
-    } catch (error) {
-      console.error('Signature verification error:', error);
-      return res.json({ valid: false, error: 'Invalid signature format' });
+    } catch {
+      isValid = false;
     }
 
     if (!isValid) {
       return res.json({ valid: false, error: 'Invalid signature' });
     }
 
-    // Check if OTP has been used (used = true)
-    // If used = true, deny access even if signature is valid
-    const otpData = user.OTP_rest_password;
-    if (otpData && otpData.used === true) {
-      return res.json({ valid: false, error: 'OTP has already been used. Please request a new OTP.' });
-    }
-
-    // Check OTP expiration date
-    // If expiration date is null or expiration date <= now (expired), deny access
-    if (!otpData || !otpData.OTP_Expiration_Date) {
-      // OTP expiration date is null or missing
-      return res.json({ valid: false, error: 'OTP session has expired. Please request a new OTP.' });
-    }
-    
-    const expirationDate = new Date(otpData.OTP_Expiration_Date);
-    const now = new Date();
-    if (now >= expirationDate) {
-      // Current time is >= expiration date (expired)
-      return res.json({ valid: false, error: 'OTP session has expired. Please request a new OTP.' });
-    }
-
-    // Signature is valid, OTP is not used, and expiration date is valid - allow access to reset password page
-    // The signature proves that the OTP was successfully verified
     res.json({ valid: true });
   } catch (error) {
     console.error('Verify signature error:', error);
@@ -123,4 +111,3 @@ export default async function handler(req, res) {
     if (client) await client.close();
   }
 }
-

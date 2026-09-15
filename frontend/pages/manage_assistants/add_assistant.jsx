@@ -9,8 +9,12 @@ import { useSystemConfig } from '../../lib/api/system';
 import PhoneInput from 'react-phone-input-2';
 import 'react-phone-input-2/lib/style.css';
 import { formatPhoneForDB, validateEgyptPhone, handleEgyptPhoneKeyDown } from '../../lib/phoneUtils';
+import {
+  setAssistantWaCredentials,
+  clearAssistantWaCredentials,
+} from '../../lib/ephemeralCredentials';
+import { useFieldErrorShake, FIELD_ERROR_SHAKE_CSS } from '../../lib/fieldErrorShake';
 
-const ASSISTANT_CREDENTIALS_KEY = 'assistant_wa_credentials';
 const EMPTY_FORM = {
   id: "",
   name: "",
@@ -45,6 +49,10 @@ export default function AddAssistant() {
   // React Query hooks
   const createAssistantMutation = useCreateAssistant();
   const usernameCheck = useCheckUsername(form.id);
+  const usernameTaken =
+    Boolean(form.id) && !usernameCheck.isLoading && usernameCheck.data?.exists === true;
+  const { shakeClass: usernameShakeClass, labelClass: usernameLabelClass } =
+    useFieldErrorShake(usernameTaken, form.id);
 
   useEffect(() => {
     // Only allow admin
@@ -67,21 +75,13 @@ export default function AddAssistant() {
     }
   }, [success]);
 
-  // Start each visit with a clean form and remove credentials when leaving the page.
+  // Start each visit with a clean form and clear ephemeral WA credentials on leave.
   useEffect(() => {
-    try {
-      sessionStorage.removeItem(ASSISTANT_CREDENTIALS_KEY);
-    } catch {
-      // Ignore unavailable session storage.
-    }
+    clearAssistantWaCredentials();
 
     return () => {
-      try {
-        sessionStorage.removeItem(ASSISTANT_CREDENTIALS_KEY);
-      } catch {
-        // Ignore unavailable session storage.
-      }
-    }
+      clearAssistantWaCredentials();
+    };
   }, []);
 
   const resetAssistantForm = () => {
@@ -94,12 +94,7 @@ export default function AddAssistant() {
     setSuccess(false);
     setError("");
     createAssistantMutation.reset();
-
-    try {
-      sessionStorage.removeItem(ASSISTANT_CREDENTIALS_KEY);
-    } catch {
-      // Ignore unavailable session storage.
-    }
+    clearAssistantWaCredentials();
   };
 
   const handleChange = (e) => {
@@ -202,7 +197,7 @@ export default function AddAssistant() {
     createAssistantMutation.mutate(payload, {
       onSuccess: () => {
         try {
-          sessionStorage.setItem(ASSISTANT_CREDENTIALS_KEY, JSON.stringify(credentialsSnapshot));
+          setAssistantWaCredentials(credentialsSnapshot);
         } catch {
           // ignore storage errors
         }
@@ -325,9 +320,9 @@ Best regards,
           }
           .form-input:focus {
             outline: none;
-            border-color: #87CEEB;
+            border-color: #1fa8dc;
             background: white;
-            box-shadow: 0 0 0 3px rgba(135, 206, 235, 0.1);
+            box-shadow: 0 0 0 3px rgba(31, 168, 220, 0.15);
           }
           .form-input.error-border:focus {
             outline: none;
@@ -341,7 +336,7 @@ Best regards,
           .submit-btn {
             width: 100%;
             padding: 16px;
-            background: linear-gradient(135deg, #15b0ef 0%, #15d0e7 100%);
+            background: linear-gradient(135deg, #3cb8eb 0%, #2cb1c1 100%);
             color: white;
             border: none;
             border-radius: 10px;
@@ -349,12 +344,12 @@ Best regards,
             font-weight: 600;
             cursor: pointer;
             transition: all 0.3s ease;
-            box-shadow: 0 4px 16px rgba(21, 176, 239, 0.35);
+            box-shadow: 0 4px 16px rgba(60, 184, 235, 0.35);
             margin-top: 8px;
           }
           .submit-btn:hover:not(:disabled) {
             transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(21, 176, 239, 0.45);
+            box-shadow: 0 6px 20px rgba(60, 184, 235, 0.45);
           }
           .submit-btn:disabled {
             background: linear-gradient(135deg, #87ceeb 0%, #b0e0e6 100%);
@@ -568,6 +563,7 @@ Best regards,
             }
           }
         `}</style>
+        <style jsx global>{FIELD_ERROR_SHAKE_CSS}</style>
                  <Title 
                    backText="Back" 
                    href="/manage_assistants" 
@@ -595,10 +591,10 @@ Best regards,
                  </Title>
         <div className="form-container">
           <form onSubmit={handleSubmit}>
-            <div className="form-group">
-              <label>Username <span style={{color: 'red'}}>*</span></label>
+            <div className={`form-group ${usernameShakeClass}`}>
+              <label className={usernameLabelClass}>Username <span style={{color: 'red'}}>*</span></label>
               <input
-                className={`form-input ${!usernameCheck.isLoading && usernameCheck.data && usernameCheck.data.exists ? 'error-border' : ''}`}
+                className={`form-input ${usernameTaken ? 'error-border' : ''}`}
                 name="id"
                 placeholder="Enter assistant username"
                 value={form.id}
@@ -619,9 +615,9 @@ Best regards,
                       🔍 Checking availability...
                     </div>
                   )}
-                  {!usernameCheck.isLoading && usernameCheck.data && usernameCheck.data.exists && (
+                  {usernameTaken && (
                     <div className="username-feedback taken">
-                      ❌ This username is already taken, use anther one
+                      ❌ This username is already taken, use another one
                     </div>
                   )}
                   {!usernameCheck.isLoading && usernameCheck.data && !usernameCheck.data.exists && (

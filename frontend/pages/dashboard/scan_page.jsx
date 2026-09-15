@@ -67,6 +67,8 @@ export default function QR() {
   const [deactivatedErrorShown, setDeactivatedErrorShown] = useState(false); // Track if deactivated error was shown
   const [searchResults, setSearchResults] = useState([]); // Store multiple search results
   const [showSearchResults, setShowSearchResults] = useState(false); // Show/hide search results
+  const [categoryConfirmOpen, setCategoryConfirmOpen] = useState(false);
+  const [categoryConfirmMeta, setCategoryConfirmMeta] = useState(null);
   const router = useRouter();
 
   // Handle URL parameters for auto-filling student ID and triggering search
@@ -102,6 +104,24 @@ export default function QR() {
   const updateHomeworkDegreeMutation = useUpdateHomeworkDegree();
   const updateQuizGradeMutation = useUpdateQuizGrade();
   const updateWeekCommentMutation = useUpdateWeekComment();
+
+  const { data: lessonsList = [] } = useQuery({
+    queryKey: ['lessons'],
+    queryFn: async () => {
+      const response = await apiClient.get('/api/lessons');
+      return response.data.lessons || [];
+    },
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  const selectedLessonCategory = useMemo(() => {
+    const lesson = (lessonsList || []).find((l) => l?.name === selectedLesson);
+    if (!lesson) return null;
+    const c = lesson.category;
+    if (c == null || String(c).trim() === '') return null;
+    return String(c).trim();
+  }, [lessonsList, selectedLesson]);
 
   // Load remembered values from sessionStorage
   useEffect(() => {
@@ -652,15 +672,32 @@ export default function QR() {
     }
   }, [optimisticAttended, student?.attended_the_session]);
 
+  const lessonCategoryNeedsConfirm = (category, studentCourse) => {
+    if (category == null) return false;
+    const cat = String(category).trim();
+    if (!cat) return false;
+    if (cat.toLowerCase() === 'all') return false;
+    const course = String(studentCourse || '').trim();
+    if (!course) return true;
+    return cat.toLowerCase() !== course.toLowerCase();
+  };
 
+  const closeCategoryConfirm = () => {
+    setCategoryConfirmOpen(false);
+    setCategoryConfirmMeta(null);
+    setIsQRScanned(false);
+  };
 
-
-  const toggleAttendance = async () => {
+  const toggleAttendance = async (options = {}) => {
     if (!student || !selectedLesson || !attendanceCenter) return;
     if (student.account_deactivated) return; // Don't allow attendance for deactivated accounts
     
-    // Check if student has available sessions or paid lesson (only if payment system is enabled)
-    if (isPaymentSystemEnabled) {
+    // Use current displayed state (optimistic if available, otherwise DB state)
+    const currentAttended = optimisticAttended !== null ? optimisticAttended : student.attended_the_session;
+    const newAttended = !currentAttended;
+
+    // Check sessions only when marking attended
+    if (newAttended && isPaymentSystemEnabled) {
       const availableSessions = student.payment?.numberOfSessions || 0;
       const hasPaidLesson = getStudentLesson(student.lessons, selectedLesson)?.paid === true;
       
@@ -669,10 +706,24 @@ export default function QR() {
         return;
       }
     }
+
+    // Lesson category ≠ student course/grade → confirm first (button, QR camera, upload QR)
+    if (
+      newAttended &&
+      !options.skipCategoryConfirm &&
+      lessonCategoryNeedsConfirm(selectedLessonCategory, student.course)
+    ) {
+      setIsQRScanned(false);
+      setCategoryConfirmMeta({
+        lessonName: selectedLesson,
+        lessonCategory: selectedLessonCategory,
+        studentCourse: student.course || '—',
+        studentName: student.name || '',
+      });
+      setCategoryConfirmOpen(true);
+      return;
+    }
     
-    // Use current displayed state (optimistic if available, otherwise DB state)
-    const currentAttended = optimisticAttended !== null ? optimisticAttended : student.attended_the_session;
-    const newAttended = !currentAttended;
     setOptimisticAttended(newAttended);
     // If marking as absent, clear local comment and uncheck all checkboxes immediately to reflect reset
     if (!newAttended) {
@@ -705,12 +756,13 @@ export default function QR() {
         attendanceLesson: selectedLesson 
       };
     } else {
-      // Mark as not attended - clear attendance info
+      // Scan reverse: remove lesson from student DB (do not leave as absent)
       attendanceData = { 
         attended: false,
         lastAttendance: null, 
         lastAttendanceCenter: null, 
-        attendanceLesson: selectedLesson 
+        attendanceLesson: selectedLesson,
+        removeLesson: true,
       };
     }
     
@@ -718,7 +770,8 @@ export default function QR() {
       studentId: student.id,
       studentName: student.name,
       newAttendedState: newAttended,
-      selectedLesson
+      selectedLesson,
+      removeLesson: !newAttended,
     });
 
     toggleAttendanceMutation.mutate({
@@ -726,7 +779,7 @@ export default function QR() {
       attendanceData
     }, {
       onSuccess: async () => {
-        setAttendanceSuccess(newAttended ? '✅ Student Marked as Attended' : '✅ Student Marked as Absent');
+        setAttendanceSuccess(newAttended ? '✅ Student Marked as Attended' : '✅ Attendance reversed — lesson removed');
         // Clear optimistic state since the mutation succeeded
         setOptimisticAttended(null);
         // Disable QR auto-attend after a successful toggle so manual reversals work correctly
@@ -3117,6 +3170,141 @@ export default function QR() {
             showError: true
           })}
           ❌ {error}
+        </div>
+      )}
+
+      {categoryConfirmOpen && categoryConfirmMeta && (
+        <div
+          className="confirm-modal category-confirm-modal"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            backdropFilter: 'blur(8px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '16px',
+            boxSizing: 'border-box',
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeCategoryConfirm();
+          }}
+        >
+          <div
+            className="confirm-content"
+            style={{
+              background: 'white',
+              borderRadius: '16px',
+              padding: 'clamp(20px, 4vw, 32px)',
+              maxWidth: '420px',
+              width: '100%',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+              boxSizing: 'border-box',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3
+              style={{
+                marginTop: 0,
+                marginBottom: '12px',
+                textAlign: 'center',
+                fontSize: 'clamp(1.05rem, 3.5vw, 1.25rem)',
+                color: '#212529',
+              }}
+            >
+              Different {courseLabels.course} Category
+            </h3>
+            <p
+              style={{
+                textAlign: 'center',
+                marginBottom: '8px',
+                color: '#495057',
+                lineHeight: 1.5,
+                fontSize: 'clamp(0.9rem, 2.8vw, 1rem)',
+              }}
+            >
+              This lesson is for{' '}
+              <strong>{categoryConfirmMeta.lessonCategory}</strong>
+              {categoryConfirmMeta.lessonName
+                ? ` (“${categoryConfirmMeta.lessonName}”)`
+                : ''}
+              , but this student’s {courseLabels.courseLower} is{' '}
+              <strong>{categoryConfirmMeta.studentCourse}</strong>.
+            </p>
+            <p
+              style={{
+                textAlign: 'center',
+                marginBottom: '24px',
+                color: '#6c757d',
+                lineHeight: 1.45,
+                fontSize: 'clamp(0.85rem, 2.6vw, 0.95rem)',
+              }}
+            >
+              Are you sure you want to attend
+              {categoryConfirmMeta.studentName
+                ? ` ${categoryConfirmMeta.studentName}`
+                : ' this student'}{' '}
+              in this lesson?
+            </p>
+            <div
+              className="confirm-buttons"
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '12px',
+                justifyContent: 'center',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  closeCategoryConfirm();
+                  toggleAttendance({ skipCategoryConfirm: true });
+                }}
+                disabled={toggleAttendanceMutation.isPending}
+                style={{
+                  padding: '12px 24px',
+                  backgroundColor: '#28a745',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: toggleAttendanceMutation.isPending ? 'not-allowed' : 'pointer',
+                  fontSize: '1rem',
+                  fontWeight: '600',
+                  opacity: toggleAttendanceMutation.isPending ? 0.7 : 1,
+                  minWidth: '140px',
+                  flex: '1 1 140px',
+                }}
+              >
+                {toggleAttendanceMutation.isPending ? 'Attending...' : 'Yes, attend'}
+              </button>
+              <button
+                type="button"
+                onClick={closeCategoryConfirm}
+                disabled={toggleAttendanceMutation.isPending}
+                style={{
+                  padding: '12px 24px',
+                  backgroundColor: '#6c757d',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: toggleAttendanceMutation.isPending ? 'not-allowed' : 'pointer',
+                  fontSize: '1rem',
+                  fontWeight: '600',
+                  opacity: toggleAttendanceMutation.isPending ? 0.7 : 1,
+                  minWidth: '120px',
+                  flex: '1 1 120px',
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
       </div>

@@ -116,8 +116,11 @@ export default async function handler(req, res) {
         const currentPage = parseInt(page) || 1;
         const pageSize = parseInt(limit) || 100;
         const searchTerm = search ? search.trim() : '';
-        const sortField = sortBy || 'date';
-        const sortDirection = sortOrder === 'desc' ? -1 : 1;
+        // `date` is a display string (DD/MM/YYYY at …) — sort by _id (creation time) instead
+        const requestedSort = sortBy || 'date';
+        const sortDirection = sortOrder === 'asc' ? 1 : -1; // default: newest first
+        const sortField =
+          requestedSort === 'date' || requestedSort === 'created_at' ? '_id' : requestedSort;
 
         // Build query filter for VHC collection
         let vhcQueryFilter = {};
@@ -192,8 +195,8 @@ export default async function handler(req, res) {
         });
       }
 
-      // Non-paginated response (for backward compatibility)
-      const vhcRecords = await db.collection('VHC').find({}).toArray();
+      // Non-paginated response (for backward compatibility) — newest first
+      const vhcRecords = await db.collection('VHC').find({}).sort({ _id: -1 }).toArray();
       
       // Normalize deadline_date to YYYY-MM-DD in Africa/Cairo
       const normalizedRecords = vhcRecords.map(record => {
@@ -275,6 +278,7 @@ export default async function handler(req, res) {
           code_lesson: (typeof code_lesson === 'string' && code_lesson.trim()) ? code_lesson.trim() : 'All',
           viewed: false,
           viewed_by_who: null,
+          opened_session_id: null,
           code_state: code_state,
           payment_state: 'Not Paid',
           made_by_who: madeByWho,

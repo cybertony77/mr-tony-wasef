@@ -5,6 +5,7 @@ import {
   normalizeValidCorrectAnswers,
 } from './onlineQuestionTypes';
 import { listQuestionPicturePublicIds, pickQuestionPictureFields } from './questionPictures';
+import { serializeExplanationVideoForDb } from './explanationVideo';
 
 /**
  * Validate one question from create/update body.
@@ -53,11 +54,13 @@ export function validateOnlineQuestionPayload(q, index) {
  */
 export function serializeOnlineQuestionForDb(q, normalizeQuestionPictures) {
   const type = getQuestionType(q);
+  const explanationVideo = serializeExplanationVideoForDb(q.question_explanation_video);
   const base = {
     question_type: type,
     question_text: q.question_text || '',
     ...normalizeQuestionPictures(q),
     question_explanation: q.question_explanation || '',
+    question_explanation_video: explanationVideo,
     use_desmos: q.use_desmos === true || q.use_desmos === 'true',
   };
 

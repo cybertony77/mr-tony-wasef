@@ -2,6 +2,7 @@ import { MongoClient } from 'mongodb';
 import fs from 'fs';
 import path from 'path';
 import { authMiddleware } from '../../../lib/authMiddleware';
+import {requireStaff, isForbiddenError, forbiddenJson} from '../../../lib/requireStaff';
 
 // Load environment variables from env.config
 function loadEnvConfig() {
@@ -208,6 +209,7 @@ export default async function handler(req, res) {
     // Verify authentication
     console.log('🔐 Authenticating user...');
     const user = await authMiddleware(req);
+    await requireStaff(user);
     console.log('✅ User authenticated:', user.assistant_id || user.id);
     
     if (req.method === 'GET') {
@@ -228,6 +230,9 @@ export default async function handler(req, res) {
         const centerFilter = center ? center.trim() : '';
         const courseTypeFilter = courseType ? courseType.trim() : '';
         const genderFilter = req.query.gender ? req.query.gender.trim() : '';
+        const accountStateFilter = req.query.account_state
+          ? req.query.account_state.trim()
+          : '';
         const sortField = sortBy || 'id';
         const sortDirection = sortOrder === 'desc' ? -1 : 1;
         
@@ -284,6 +289,10 @@ export default async function handler(req, res) {
         
         if (genderFilter) {
           queryFilter.gender = { $regex: exactMatchRegex(genderFilter) };
+        }
+
+        if (accountStateFilter) {
+          queryFilter.account_state = { $regex: exactMatchRegex(accountStateFilter) };
         }
         
         console.log('🔍 Query filter:', JSON.stringify(queryFilter, null, 2));
@@ -755,6 +764,10 @@ export default async function handler(req, res) {
     
     if (error.message === 'No token provided') {
       return res.status(401).json({ error: 'No token provided' });
+    }
+
+    if (isForbiddenError(error) || error.message === 'Forbidden' || String(error.message||'').includes('Forbidden')) {
+      return res.status(403).json(forbiddenJson(error));
     }
     
     res.status(500).json({ 

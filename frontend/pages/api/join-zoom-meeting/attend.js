@@ -4,6 +4,7 @@ import path from 'path';
 import { authMiddleware, isAuthError } from '../../../lib/authMiddleware';
 import { getStudentLesson, mergeStudentLesson } from '../../../lib/studentLessons';
 import { formatEgyptAttendance } from '../../../lib/egyptDateTime';
+import { recordPaymentSessionChange } from '../../../lib/paymentHistoryServer';
 
 function loadEnvConfig() {
   try {
@@ -168,15 +169,21 @@ export default async function handler(req, res) {
     }
 
     const nextLessons = mergeStudentLesson(student.lessons, lesson, lessonPatch);
-    const updateDoc = sessionDelta !== 0
-      ? { $set: { lessons: nextLessons }, $inc: { 'payment.numberOfSessions': sessionDelta } }
-      : { $set: { lessons: nextLessons } };
 
-    // Apply the update
     await db.collection('students').updateOne(
       { id: parseInt(studentId) },
-      updateDoc
+      { $set: { lessons: nextLessons } }
     );
+
+    if (sessionDelta !== 0) {
+      await recordPaymentSessionChange(db, parseInt(studentId), {
+        delta: sessionDelta,
+        type: 'zoom_meeting',
+        reason: `Live Zoom meeting attendance for ${lesson}`,
+        lesson,
+        by: 'student',
+      });
+    }
 
     const sessionDeducted = sessionDelta === -1;
 

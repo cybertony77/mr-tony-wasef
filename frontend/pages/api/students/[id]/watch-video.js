@@ -10,6 +10,11 @@ import {
   getFreeViewsRemaining,
   attendedInCenter,
 } from '../../../../lib/onlineSessionViewing';
+import {
+  makeVideoPartKey,
+  normalizePartViews,
+  resolveViewsPerVideoLimit,
+} from '../../../../lib/videoPartViews';
 import { formatEgyptDateTime, formatEgyptAttendance } from '../../../../lib/egyptDateTime';
 
 function loadEnvConfig() {
@@ -94,7 +99,8 @@ export default async function handler(req, res) {
       });
     }
 
-    const { session_id, action, watched_percent } = req.body; // action: 'view' | 'finish' | 'start_free_access' | 'decrement_free_views'
+    const { session_id, action, watched_percent, video_part_key, video_id, video_index } = req.body; // action: 'view' | 'finish' | 'start_free_access' | 'decrement_free_views' | 'decrement_session_unlock_views'
+    const partKey = makeVideoPartKey(video_part_key || video_id, video_index);
 
     if (!session_id) {
       return res.status(400).json({ error: 'Session ID is required' });
@@ -126,6 +132,47 @@ export default async function handler(req, res) {
         const videoIdStr = typeof s.video_id === 'string' ? s.video_id : s.video_id?.toString();
         return videoIdStr === sessionIdStr && s.free_viewing === true;
       });
+
+    if (action === 'decrement_session_unlock_views') {
+      const list = Array.isArray(student.online_sessions) ? [...student.online_sessions] : [];
+      const idx = list.findIndex((s) => {
+        const videoIdStr = typeof s.video_id === 'string' ? s.video_id : s.video_id?.toString();
+        return videoIdStr === sessionIdStr && s.paid_with_session === true;
+      });
+      if (idx < 0) {
+        return res.status(200).json({ success: true, skipped: true });
+      }
+      const entry = list[idx];
+      const limit = resolveViewsPerVideoLimit(entry, 1);
+      const partViews = normalizePartViews(entry.part_views);
+      const used = Number(partViews[partKey]) || 0;
+      if (used >= limit) {
+        return res.status(200).json({
+          success: true,
+          number_of_views: 0,
+          exhausted: true,
+          entry: { ...entry, part_views: partViews, views_per_video_limit: limit },
+        });
+      }
+      partViews[partKey] = used + 1;
+      const remaining = Math.max(0, limit - partViews[partKey]);
+      const updatedEntry = {
+        ...entry,
+        views_per_video_limit: limit,
+        part_views: partViews,
+      };
+      list[idx] = updatedEntry;
+      await db.collection('students').updateOne(
+        { id: student_id },
+        { $set: { online_sessions: list } }
+      );
+      return res.status(200).json({
+        success: true,
+        number_of_views: remaining,
+        exhausted: remaining <= 0,
+        entry: updatedEntry,
+      });
+    }
 
     if (action === 'start_free_access') {
       if (!isFreeLimited) {
@@ -263,15 +310,15 @@ export default async function handler(req, res) {
         lessonDataForViews
       );
       const limit = Number(session.viewing_limit_value) || 0;
-      const used = Number(entry.views_used ?? 0) || 0;
-      // Always derive from current session limit so increased limits grant leftover views
-      const remaining = getFreeViewsRemaining(session, entry);
+      const partViews = normalizePartViews(entry.part_views);
+      const usedPart = Number(partViews[partKey]) || 0;
+      const remaining = getFreeViewsRemaining(session, entry, partKey);
 
-      if (remaining <= 0 || used >= limit) {
+      if (remaining <= 0 || usedPart >= limit) {
         const expiredEntry = {
           ...entry,
           views_remaining: 0,
-          views_used: Math.max(used, limit),
+          part_views: { ...partViews, [partKey]: Math.max(usedPart, limit) },
           free_access_expired: true,
           expired_at: entry.expired_at || new Date().toISOString(),
         };
@@ -291,25 +338,23 @@ export default async function handler(req, res) {
       }
 
       const nowIso = new Date().toISOString();
-      const nextUsed = used + 1;
-      const nextRemaining = Math.max(0, limit - nextUsed);
+      partViews[partKey] = usedPart + 1;
+      const nextRemaining = Math.max(0, limit - partViews[partKey]);
       const viewTimes = Array.isArray(entry.view_times) ? [...entry.view_times] : [];
-      viewTimes.push(nowIso);
+      viewTimes.push({ at: nowIso, part: partKey });
 
       const updatedEntry = {
         ...entry,
         viewing_limit_type: session.viewing_limit_type,
         viewing_limit_value: limit,
-        views_used: nextUsed,
+        part_views: partViews,
+        views_used: entry.views_used,
         views_remaining: nextRemaining,
         view_times: viewTimes,
         last_viewed_at: nowIso,
-        free_access_expired: nextRemaining <= 0,
-        ...(nextRemaining <= 0 ? { expired_at: nowIso } : { expired_at: undefined }),
+        free_access_expired: false,
       };
-      if (nextRemaining > 0) {
-        delete updatedEntry.expired_at;
-      }
+      delete updatedEntry.expired_at;
       const nextList = [...onlineSessions];
       nextList[existingIdx] = updatedEntry;
 
@@ -385,6 +430,10 @@ export default async function handler(req, res) {
           ),
         });
         const lessonData = getStudentLesson(student.lessons, lesson);
+        const wasAlreadyAttended =
+          lessonData?.attended === true ||
+          lessonData?.attended === 'true' ||
+          lessonData?.attended === 1;
         const preserveCenterAttendance =
           effectivePaymentState === 'free_if_attended_in_center' &&
           attendedInCenter(lessonData);
@@ -405,7 +454,7 @@ export default async function handler(req, res) {
           { id: student_id },
           { $set: { lessons: nextLessons } }
         );
-        const attendanceMarked = updateResult.modifiedCount > 0 || updateResult.matchedCount > 0;
+        const attendanceMarked = !wasAlreadyAttended && (updateResult.modifiedCount > 0 || updateResult.matchedCount > 0);
 
         // Create history record when attendance is marked (similar to scan page logic)
         if (attendanceMarked) {
@@ -430,7 +479,7 @@ export default async function handler(req, res) {
           }
 
           // === SCORING SYSTEM: Apply attendance scoring (status: 'attend') ===
-          if (SCORING_SYSTEM_ENABLED && isPaidVideo) {
+          if (SCORING_SYSTEM_ENABLED) {
             try {
               // Check if 'attend' scoring was already applied for this student + lesson
               const existingScoringHistory = await db.collection('scoring_system_history').findOne({

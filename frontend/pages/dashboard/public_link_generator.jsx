@@ -39,7 +39,22 @@ export default function GenerateLink() {
     window.open(whatsappUrl, '_blank');
   };
 
-  const handleGenerate = (e) => {
+  const applyGeneratedLink = async (studentOrId) => {
+    const id = typeof studentOrId === 'object' && studentOrId?.id != null
+      ? String(studentOrId.id)
+      : String(studentOrId);
+    const link = await generatePublicStudentLink(id);
+    setGeneratedLink(link);
+    if (typeof studentOrId === 'object' && studentOrId) {
+      setSelectedStudent(studentOrId);
+      setStudentId(String(studentOrId.id));
+    } else {
+      setSelectedStudent(null);
+    }
+    return link;
+  };
+
+  const handleGenerate = async (e) => {
     e.preventDefault();
     if (!studentId.trim()) return;
     
@@ -53,92 +68,80 @@ export default function GenerateLink() {
     const searchTerm = studentId.trim();
     const isAllDigits = /^\d+$/.test(searchTerm);
     const isFullPhone = /^\d{11}$/.test(searchTerm);
-    
-    // Full phone -> API accepts directly
-    if (isFullPhone) {
-      if (allStudents) {
-        const matchingStudents = allStudents.filter(s =>
-          s.phone === searchTerm || s.parentsPhone1 === searchTerm || s.parentsPhone === searchTerm
-        );
-        if (matchingStudents.length === 1) {
-          const student = matchingStudents[0];
-          const link = generatePublicStudentLink(student.id.toString());
-          setGeneratedLink(link);
-          setStudentId(student.id.toString()); // Auto-replace with ID
-          setSelectedStudent(student);
+
+    try {
+      // Full phone -> API accepts directly
+      if (isFullPhone) {
+        if (allStudents) {
+          const matchingStudents = allStudents.filter(s =>
+            s.phone === searchTerm || s.parentsPhone1 === searchTerm || s.parentsPhone === searchTerm
+          );
+          if (matchingStudents.length === 1) {
+            await applyGeneratedLink(matchingStudents[0]);
+          } else {
+            setError(`No student found with phone number ${searchTerm}`);
+          }
         } else {
-          setError(`No student found with phone number ${searchTerm}`);
+          setError("Student data not loaded. Please try again.");
+        }
+        return;
+      }
+      
+      // Pure digits, treat as possible ID or partial phone
+      if (isAllDigits) {
+        // Try exact ID match in local list first
+        if (allStudents) {
+          const byId = allStudents.find(s => String(s.id) === searchTerm);
+          if (byId) {
+            await applyGeneratedLink(byId);
+            return;
+          }
+          // Partial phone/parent phone startsWith match
+          const term = searchTerm;
+          const matchingStudents = allStudents.filter(s => {
+            const phone = String(s.phone || '').replace(/[^0-9]/g, '');
+            const parent = String(s.parents_phone || s.parentsPhone || '').replace(/[^0-9]/g, '');
+            return phone.startsWith(term) || parent.startsWith(term);
+          });
+          if (matchingStudents.length === 1) {
+            await applyGeneratedLink(matchingStudents[0]);
+            return;
+          }
+          if (matchingStudents.length > 1) {
+            setSearchResults(sortStudentsByName(matchingStudents));
+            setShowSearchResults(true);
+            setError(`Found ${matchingStudents.length} students. Please select one.`);
+            return;
+          }
+        }
+        // Fallback: just use numeric as id
+        await applyGeneratedLink(searchTerm);
+        setShowWarning(true); // Show warning for non-existent student
+        return;
+      }
+      
+      // Name search through all students
+      if (allStudents) {
+        const matchingStudents = allStudents.filter(student => 
+          student.name.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+        
+        if (matchingStudents.length === 1) {
+          // Single match, use it directly
+          await applyGeneratedLink(matchingStudents[0]);
+        } else if (matchingStudents.length > 1) {
+          // Multiple matches, show selection
+          setSearchResults(sortStudentsByName(matchingStudents));
+          setShowSearchResults(true);
+          setError(`Found ${matchingStudents.length} students. Please select one.`);
+        } else {
+          setError(`No student found matching "${searchTerm}"`);
         }
       } else {
         setError("Student data not loaded. Please try again.");
       }
-      return;
-    }
-    
-    // Pure digits, treat as possible ID or partial phone
-    if (isAllDigits) {
-      // Try exact ID match in local list first
-      if (allStudents) {
-        const byId = allStudents.find(s => String(s.id) === searchTerm);
-        if (byId) {
-          const link = generatePublicStudentLink(String(byId.id));
-          setGeneratedLink(link);
-          setSelectedStudent(byId);
-          return;
-        }
-        // Partial phone/parent phone startsWith match
-        const term = searchTerm;
-        const matchingStudents = allStudents.filter(s => {
-          const phone = String(s.phone || '').replace(/[^0-9]/g, '');
-          const parent = String(s.parents_phone || s.parentsPhone || '').replace(/[^0-9]/g, '');
-          return phone.startsWith(term) || parent.startsWith(term);
-        });
-        if (matchingStudents.length === 1) {
-          const foundStudent = matchingStudents[0];
-          const link = generatePublicStudentLink(foundStudent.id.toString());
-          setGeneratedLink(link);
-          setStudentId(foundStudent.id.toString());
-          setSelectedStudent(foundStudent);
-          return;
-        }
-        if (matchingStudents.length > 1) {
-          setSearchResults(sortStudentsByName(matchingStudents));
-          setShowSearchResults(true);
-          setError(`Found ${matchingStudents.length} students. Please select one.`);
-          return;
-        }
-      }
-      // Fallback: just use numeric as id
-      const link = generatePublicStudentLink(searchTerm);
-      setGeneratedLink(link);
-      setSelectedStudent(null); // No student data available for fallback
-      setShowWarning(true); // Show warning for non-existent student
-      return;
-    }
-    
-    // Name search through all students
-    if (allStudents) {
-      const matchingStudents = allStudents.filter(student => 
-        student.name.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-      
-      if (matchingStudents.length === 1) {
-        // Single match, use it directly
-        const foundStudent = matchingStudents[0];
-        const link = generatePublicStudentLink(foundStudent.id.toString());
-        setGeneratedLink(link);
-        setStudentId(foundStudent.id.toString());
-        setSelectedStudent(foundStudent);
-      } else if (matchingStudents.length > 1) {
-        // Multiple matches, show selection
-        setSearchResults(sortStudentsByName(matchingStudents));
-        setShowSearchResults(true);
-        setError(`Found ${matchingStudents.length} students. Please select one.`);
-      } else {
-        setError(`No student found matching "${searchTerm}"`);
-      }
-    } else {
-      setError("Student data not loaded. Please try again.");
+    } catch {
+      setError('Failed to generate secure link');
     }
   };
 
@@ -180,14 +183,15 @@ export default function GenerateLink() {
   };
 
   // Handle student selection from search results
-  const handleStudentSelect = (student) => {
-    const link = generatePublicStudentLink(student.id.toString());
-    setGeneratedLink(link);
-    setStudentId(student.id.toString());
-    setSelectedStudent(student);
-    setSearchResults([]);
-    setShowSearchResults(false);
-    setError("");
+  const handleStudentSelect = async (student) => {
+    try {
+      await applyGeneratedLink(student);
+      setSearchResults([]);
+      setShowSearchResults(false);
+      setError("");
+    } catch {
+      setError('Failed to generate secure link');
+    }
   };
 
   // Clear student data when ID input is emptied

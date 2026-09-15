@@ -2,6 +2,7 @@ import { MongoClient } from 'mongodb';
 import fs from 'fs';
 import path from 'path';
 import { authMiddleware } from '../../../../lib/authMiddleware';
+import {requireStaff, isForbiddenError, forbiddenJson} from '../../../../lib/requireStaff';
 import {
   createDefaultStudentLesson,
   getStudentLesson,
@@ -62,7 +63,8 @@ export default async function handler(req, res) {
     const db = client.db(DB_NAME);
 
     // Verify authentication
-    await authMiddleware(req);
+    const user = await authMiddleware(req);
+    await requireStaff(user);
 
     // Validate student
     const student = await db.collection('students').findOne({ id: studentId });
@@ -113,6 +115,9 @@ export default async function handler(req, res) {
   } catch (error) {
     if (error.message.includes('Unauthorized') || error.message.includes('Invalid token')) {
       return res.status(401).json({ error: error.message });
+    }
+    if (isForbiddenError(error) || error.message === 'Forbidden' || String(error.message||'').includes('Forbidden')) {
+      return res.status(403).json(forbiddenJson(error));
     }
     console.error('Error updating week comment:', error);
     return res.status(500).json({ error: 'Internal server error' });

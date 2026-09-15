@@ -54,8 +54,8 @@ export default async function handler(req, res) {
     
     // Verify authentication - only student can view their own results
     const user = await authMiddleware(req);
-    const userId = user.assistant_id || user.id; // JWT contains assistant_id for students
-    if (user.role !== 'student' || userId !== student_id) {
+    const userId = Number(user.assistant_id || user.id);
+    if (user.role !== 'student' || userId !== Number(student_id)) {
       return res.status(403).json({ error: 'Forbidden: You can only view your own results' });
     }
 

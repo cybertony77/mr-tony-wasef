@@ -88,7 +88,31 @@ export function truncateMeta(text, max = 160) {
 
 export function getDefaultDescription(siteName) {
   const name = getSiteName(siteName);
-  return `Sign in, register, and explore public information for ${name} — schedules, contact details, free sessions, and student reviews.`;
+  return `Official public pages for ${name} — log in, create an account, view schedules, and contact the team.`;
+}
+
+/**
+ * Meta copy for signed parent links (/dashboard/student_info?id=…&sig=…).
+ * Used for link previews (e.g. WhatsApp); page stays noindex.
+ */
+export function getStudentInfoPublicSeo({ siteName, studentName } = {}) {
+  const academy = getSiteName(siteName);
+  const fullName = trimStr(studentName);
+  const firstName = fullName.split(/\s+/).find(Boolean) || '';
+
+  if (firstName) {
+    return {
+      title: `${firstName}'s Progress`,
+      description:
+        `Official parent report from ${academy}: view ${firstName}'s attendance, homework, quiz and mock exam results, and clear progress charts—shared through a secure link so you can follow learning with confidence.`,
+    };
+  }
+
+  return {
+    title: 'Parent Progress Report',
+    description:
+      `Secure parent link from ${academy}. See attendance, homework, quizzes, and progress charts in one place—accurate records from your child's academy, updated regularly.`,
+  };
 }
 
 /** Genuinely public, indexable routes for this education system. */
@@ -128,7 +152,7 @@ export function getPublicPageSeo(path, siteName) {
   const map = {
     '/': {
       title: 'Login',
-      description: `Sign in to your ${name} account to access attendance, homework, quizzes, and student resources.`,
+      description: `Log in to your ${name} account to access attendance, homework, quizzes, and student resources.`,
     },
     '/sign-up': {
       title: 'Sign Up',

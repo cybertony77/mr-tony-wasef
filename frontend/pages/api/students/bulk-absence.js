@@ -1,6 +1,11 @@
 import { MongoClient } from 'mongodb';
 import { authMiddleware, isAuthError } from '../../../lib/authMiddleware';
+import {requireStaff, isForbiddenError, forbiddenJson} from '../../../lib/requireStaff';
 import { getStudentLesson, mergeStudentLesson } from '../../../lib/studentLessons';
+import {
+  buildPaymentHistoryEntry,
+  normalizePaymentHistory,
+} from '../../../lib/paymentHistory';
 import fs from 'fs';
 import path from 'path';
 
@@ -46,9 +51,7 @@ export default async function handler(req, res) {
   let client;
   try {
     const user = await authMiddleware(req);
-    if (!['admin', 'developer', 'assistant'].includes(user.role)) {
-      return res.status(403).json({ error: 'Forbidden: Access denied' });
-    }
+    await requireStaff(user);
 
     const { ids, attendanceLesson } = req.body || {};
     const lessonName = String(attendanceLesson || '').trim();
@@ -75,6 +78,9 @@ export default async function handler(req, res) {
     }
 
     const envConfig = loadEnvConfig();
+    const SCORING_SYSTEM_ENABLED =
+      envConfig.SYSTEM_SCORING_SYSTEM === 'true' ||
+      process.env.SYSTEM_SCORING_SYSTEM === 'true';
     const paymentSystemEnabled =
       envConfig.SYSTEM_PAYMENT_SYSTEM === 'true' ||
       process.env.SYSTEM_PAYMENT_SYSTEM === 'true';
@@ -134,7 +140,20 @@ export default async function handler(req, res) {
           rawPayment && typeof rawPayment === 'object' && !Array.isArray(rawPayment)
             ? { ...rawPayment }
             : { ...normalizedPayment };
-        currentPayment.numberOfSessions = normalizedPayment.numberOfSessions + 1;
+        const balanceAfter = normalizedPayment.numberOfSessions + 1;
+        currentPayment.numberOfSessions = balanceAfter;
+        const history = normalizePaymentHistory(currentPayment);
+        history.unshift(
+          buildPaymentHistoryEntry({
+            type: 'bulk_absence',
+            delta: 1,
+            balanceAfter,
+            reason: `Bulk absence refund for ${lessonName}`,
+            lesson: lessonName,
+            by: user?.name || 'staff',
+          })
+        );
+        currentPayment.paymentHistory = history.slice(0, 200);
         updateFields.payment = currentPayment;
       }
 
@@ -153,6 +172,33 @@ export default async function handler(req, res) {
         studentId: { $in: processedIds },
         lesson: lessonName,
       });
+
+      if (SCORING_SYSTEM_ENABLED && processedIds.length > 0) {
+        const protocol = req.headers['x-forwarded-proto'] || 'http';
+        const host = req.headers.host;
+        const baseUrl = `${protocol}://${host}`;
+        const headers = { 'Content-Type': 'application/json' };
+        if (req.headers.authorization) headers.Authorization = req.headers.authorization;
+        if (req.headers.cookie) headers.Cookie = req.headers.cookie;
+
+        for (const studentId of processedIds) {
+          try {
+            await fetch(`${baseUrl}/api/scoring/calculate`, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                studentId,
+                type: 'attendance',
+                lesson: lessonName,
+                source: { kind: 'attendance', id: lessonName, label: lessonName },
+                data: { status: 'absent' },
+              }),
+            });
+          } catch (scoringErr) {
+            console.error('⚠️ Bulk absence scoring failed for student', studentId, scoringErr);
+          }
+        }
+      }
     }
 
     return res.status(200).json({
@@ -168,6 +214,9 @@ export default async function handler(req, res) {
     console.error('❌ Error saving bulk absences:', error);
     if (isAuthError(error)) {
       return res.status(error.statusCode || 401).json({ error: error.message });
+    }
+    if (isForbiddenError(error) || error.message === 'Forbidden' || String(error.message||'').includes('Forbidden')) {
+      return res.status(403).json(forbiddenJson(error));
     }
     return res.status(500).json({ error: 'Internal server error', details: error.message });
   } finally {

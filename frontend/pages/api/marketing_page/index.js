@@ -2,7 +2,6 @@ import { MongoClient, ObjectId } from 'mongodb';
 import jwt from 'jsonwebtoken';
 import { authMiddleware } from '../../../lib/authMiddleware';
 import { getCookieValue } from '../../../lib/cookies';
-import { getSignedImageUrlServer } from '../../../lib/cloudinary';
 import {
   getMongoFromEnv,
   MARKETING_DOC_ID,
@@ -117,10 +116,10 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Not found' });
       }
 
-      let teacher_picture_url = null;
-      if (doc.teacher_picture) {
-        teacher_picture_url = await getSignedImageUrlServer(doc.teacher_picture);
-      }
+      // Same-origin proxy — never expose Cloudinary signed URLs in JSON
+      const teacher_picture_url = doc.teacher_picture
+        ? `/api/marketing_page/teacher-picture?v=${encodeURIComponent(String(doc.teacher_picture).slice(-24))}`
+        : null;
 
       const centerIds = toObjectIds(doc.dates_of_sessions || []);
       let centers =

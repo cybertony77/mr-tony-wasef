@@ -3,7 +3,7 @@ import apiClient from '../axios';
 
 export const systemKeys = {
   all: ['system'],
-  config: () => [...systemKeys.all, 'config', 'features-v4'],
+  config: () => [...systemKeys.all, 'config', 'features-v5'],
 };
 
 const systemApi = {

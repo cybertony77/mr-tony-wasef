@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNationalSystem, getCourseFieldLabels } from '../../lib/api/system';
 import { useRouter } from 'next/router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -10,6 +10,13 @@ import CourseTypeSelect from '../../components/CourseTypeSelect';
 import PeriodSelect from '../../components/PeriodSelect';
 import AttendancelessonSelect from '../../components/AttendancelessonSelect';
 import AccountStateSelect from '../../components/AccountStateSelect';
+import { useStudents } from '../../lib/api/students';
+import {
+  buildStudentAudienceCounts,
+  getCourseStudentCount,
+  getCourseTypeStudentCount,
+  countMeetingAudience,
+} from '../../lib/studentAudienceCounts';
 
 // Time Input component (hours, minutes, AM/PM using PeriodSelect)
 function TimeInput({ value, onChange, label, accentColor = '#2d8cff' }) {
@@ -193,6 +200,7 @@ export default function JoinZoomMeeting() {
   
   const [error, setError] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
+  const [zeroAudienceConfirm, setZeroAudienceConfirm] = useState(null); // 'add' | 'edit' | null
   const [meetingToDelete, setMeetingToDelete] = useState(null);
   const [showAddSuccess, setShowAddSuccess] = useState(false);
   const [showEditSuccess, setShowEditSuccess] = useState(false);
@@ -219,6 +227,17 @@ export default function JoinZoomMeeting() {
   });
 
   const availableLessons = lessonsData.map(l => l.name || l.lesson || l);
+
+  const { data: studentsData } = useStudents({}, { staleTime: 60 * 1000 });
+  const studentsList = useMemo(() => {
+    if (Array.isArray(studentsData)) return studentsData;
+    if (Array.isArray(studentsData?.students)) return studentsData.students;
+    return [];
+  }, [studentsData]);
+  const audienceCounts = useMemo(
+    () => buildStudentAudienceCounts(studentsList),
+    [studentsList]
+  );
 
   // Create meeting mutation
   const createMutation = useMutation({
@@ -320,6 +339,39 @@ export default function JoinZoomMeeting() {
     return null;
   };
 
+  const buildAddPayload = () => ({
+    course: newCourse,
+    courseType: isNational ? null : (newCourseType || null),
+    lesson: newLesson,
+    link: newLink.trim(),
+    deadline: cleanTime(newDeadline),
+    dateOfStart: cleanTime(newDateOfStart),
+    dateOfEnd: cleanTime(newDateOfEnd),
+    meeting_state: newMeetingState === 'Deactivated' ? 'Deactivated' : 'Activated',
+  });
+
+  const buildEditPayload = () => ({
+    course: editCourse,
+    courseType: isNational ? null : (editCourseType || null),
+    lesson: editLesson,
+    link: editLink.trim(),
+    deadline: cleanTime(editDeadline),
+    dateOfStart: cleanTime(editDateOfStart),
+    dateOfEnd: cleanTime(editDateOfEnd),
+    meeting_state: editMeetingState === 'Deactivated' ? 'Deactivated' : 'Activated',
+  });
+
+  const submitAddMeeting = () => {
+    createMutation.mutate(buildAddPayload());
+  };
+
+  const submitUpdateMeeting = () => {
+    updateMutation.mutate({
+      id: editingMeeting._id,
+      data: buildEditPayload(),
+    });
+  };
+
   const handleAddMeeting = () => {
     if (!newCourse || !newLesson || !newLink.trim()) {
       setError(`${courseLabels.course}, Lesson and Zoom Link are required`);
@@ -330,17 +382,19 @@ export default function JoinZoomMeeting() {
       setError('Zoom link must contain "zoom.us/j/"');
       return;
     }
+
+    const audienceCount = countMeetingAudience(
+      studentsList,
+      newCourse,
+      isNational ? null : newCourseType,
+      isNational
+    );
+    if (audienceCount === 0) {
+      setZeroAudienceConfirm('add');
+      return;
+    }
     
-    createMutation.mutate({
-      course: newCourse,
-      courseType: isNational ? null : (newCourseType || null),
-      lesson: newLesson,
-      link: newLink.trim(),
-      deadline: cleanTime(newDeadline),
-      dateOfStart: cleanTime(newDateOfStart),
-      dateOfEnd: cleanTime(newDateOfEnd),
-      meeting_state: newMeetingState === 'Deactivated' ? 'Deactivated' : 'Activated',
-    });
+    submitAddMeeting();
   };
 
   const handleEditMeeting = (meeting) => {
@@ -366,20 +420,30 @@ export default function JoinZoomMeeting() {
       setError('Zoom link must contain "zoom.us/j/"');
       return;
     }
+
+    const audienceCount = countMeetingAudience(
+      studentsList,
+      editCourse,
+      isNational ? null : editCourseType,
+      isNational
+    );
+    if (audienceCount === 0) {
+      setZeroAudienceConfirm('edit');
+      return;
+    }
     
-    updateMutation.mutate({ 
-      id: editingMeeting._id, 
-      data: {
-        course: editCourse,
-        courseType: isNational ? null : (editCourseType || null),
-        lesson: editLesson,
-        link: editLink.trim(),
-        deadline: cleanTime(editDeadline),
-        dateOfStart: cleanTime(editDateOfStart),
-        dateOfEnd: cleanTime(editDateOfEnd),
-        meeting_state: editMeetingState === 'Deactivated' ? 'Deactivated' : 'Activated',
-      }
-    });
+    submitUpdateMeeting();
+  };
+
+  const confirmZeroAudiencePublish = () => {
+    const mode = zeroAudienceConfirm;
+    setZeroAudienceConfirm(null);
+    if (mode === 'add') submitAddMeeting();
+    else if (mode === 'edit') submitUpdateMeeting();
+  };
+
+  const cancelZeroAudiencePublish = () => {
+    setZeroAudienceConfirm(null);
   };
 
   const handleDeleteMeeting = (meeting) => {
@@ -404,12 +468,14 @@ export default function JoinZoomMeeting() {
     setEditingMeeting(null);
     resetEditForm();
     setError('');
+    setZeroAudienceConfirm(null);
   };
 
   const cancelAdd = () => {
     setShowAddForm(false);
     resetAddForm();
     setError('');
+    setZeroAudienceConfirm(null);
   };
 
   if (fetchError) {
@@ -782,6 +848,68 @@ export default function JoinZoomMeeting() {
         </div>
       )}
 
+      {/* Zero audience confirm */}
+      {zeroAudienceConfirm && (() => {
+        const cfgCourse = zeroAudienceConfirm === 'edit' ? editCourse : newCourse;
+        const cfgCourseType = zeroAudienceConfirm === 'edit' ? editCourseType : newCourseType;
+        return (
+        <div
+          className="confirm-modal"
+          onClick={(e) => {
+            if (e.target.classList.contains('confirm-modal')) {
+              cancelZeroAudiencePublish();
+            }
+          }}
+        >
+          <div className="confirm-content" onClick={(e) => e.stopPropagation()}>
+            <h3>
+              <span style={{ color: '#dc3545' }}>0</span> Matching Students
+            </h3>
+            <p>
+              There are no students with this configuration. The meeting link will not show for anyone right now.
+            </p>
+            <div style={{
+              margin: '12px 0 4px',
+              padding: '12px 14px',
+              background: '#f8f9fa',
+              borderRadius: '8px',
+              textAlign: 'left',
+              fontSize: '0.95rem',
+              lineHeight: 1.6,
+            }}>
+              <div>
+                <strong>{courseLabels.course}:</strong>{' '}
+                {cfgCourse || '—'}
+              </div>
+              {courseLabels.showCourseType && (
+                <div>
+                  <strong>Course Type:</strong>{' '}
+                  {cfgCourseType || 'All types'}
+                </div>
+              )}
+            </div>
+            <p><strong>Are you sure you want to publish anyway?</strong></p>
+            <div className="confirm-buttons">
+              <button
+                onClick={confirmZeroAudiencePublish}
+                disabled={createMutation.isPending || updateMutation.isPending}
+                className="zero-audience-confirm-btn"
+              >
+                {(createMutation.isPending || updateMutation.isPending) ? 'Saving...' : 'Confirm'}
+              </button>
+              <button
+                onClick={cancelZeroAudiencePublish}
+                disabled={createMutation.isPending || updateMutation.isPending}
+                className="zero-audience-cancel-btn"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
+
       {/* Add Meeting Modal */}
       {showAddForm && (
         <div 
@@ -823,6 +951,7 @@ export default function JoinZoomMeeting() {
                     setNewCourseTypeOpen(false);
                   }}
                   onClose={() => setNewCourseOpen(false)}
+                  optionCount={(courseName) => getCourseStudentCount(audienceCounts, courseName)}
                 />
               </div>
               
@@ -841,6 +970,9 @@ export default function JoinZoomMeeting() {
                     setNewCourseOpen(false);
                   }}
                   onClose={() => setNewCourseTypeOpen(false)}
+                  optionCount={(typeName) =>
+                    getCourseTypeStudentCount(audienceCounts, newCourse, typeName)
+                  }
                 />
               </div>
 )}
@@ -996,6 +1128,7 @@ export default function JoinZoomMeeting() {
                     setEditCourseTypeOpen(false);
                   }}
                   onClose={() => setEditCourseOpen(false)}
+                  optionCount={(courseName) => getCourseStudentCount(audienceCounts, courseName)}
                 />
               </div>
               
@@ -1014,6 +1147,9 @@ export default function JoinZoomMeeting() {
                     setEditCourseOpen(false);
                   }}
                   onClose={() => setEditCourseTypeOpen(false)}
+                  optionCount={(typeName) =>
+                    getCourseTypeStudentCount(audienceCounts, editCourse, typeName)
+                  }
                 />
               </div>
 )}
@@ -1143,7 +1279,7 @@ export default function JoinZoomMeeting() {
           display: flex;
           align-items: center;
           justify-content: center;
-          z-index: 1000;
+          z-index: 2000;
           padding: 20px;
         }
         .confirm-content {
@@ -1187,6 +1323,36 @@ export default function JoinZoomMeeting() {
           font-size: 1rem;
           cursor: pointer;
           transition: background 0.2s;
+        }
+        .zero-audience-confirm-btn {
+          background: #268EAF;
+          color: white;
+          border: none;
+          border-radius: 8px;
+          padding: 12px 24px;
+          font-weight: 600;
+          font-size: 1rem;
+          cursor: pointer;
+          transition: background 0.2s;
+        }
+        .zero-audience-confirm-btn:disabled {
+          opacity: 0.7;
+          cursor: not-allowed;
+        }
+        .zero-audience-cancel-btn {
+          background: #D93025;
+          color: white;
+          border: none;
+          border-radius: 8px;
+          padding: 12px 24px;
+          font-weight: 600;
+          font-size: 1rem;
+          cursor: pointer;
+          transition: background 0.2s;
+        }
+        .zero-audience-cancel-btn:disabled {
+          opacity: 0.7;
+          cursor: not-allowed;
         }
         
         .add-meeting-modal, .edit-meeting-modal {

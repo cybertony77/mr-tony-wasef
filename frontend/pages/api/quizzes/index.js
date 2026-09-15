@@ -83,7 +83,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'POST') {
-      const { lesson_name, timer, questions, lesson, course, courseType, center, quiz_type, deadline_type, deadline_date, deadline_time, shuffle_questions_and_answers, show_details_after_submitting, comment, pdf_file_name, pdf_url, state, allow_downloading } = req.body;
+      const { lesson_name, timer, questions, lesson, course, courseType, center, quiz_type, deadline_type, deadline_date, deadline_time, shuffle_questions_and_answers, show_details_after_submitting, show_overall_questions_explanation_video, overall_questions_explanation_video, comment, pdf_file_name, pdf_url, state, allow_downloading } = req.body;
 
       const effectiveQuizType = quiz_type || 'questions';
 
@@ -176,6 +176,17 @@ export default async function handler(req, res) {
         timer: effectiveQuizType === 'questions' ? (timer || null) : null,
         shuffle_questions_and_answers: effectiveQuizType === 'questions' ? (shuffle_questions_and_answers === true || shuffle_questions_and_answers === 'true') : false,
         show_details_after_submitting: effectiveQuizType === 'questions' ? (show_details_after_submitting === true || show_details_after_submitting === 'true') : false,
+        show_overall_questions_explanation_video:
+          effectiveQuizType === 'questions'
+            ? show_overall_questions_explanation_video === true ||
+              show_overall_questions_explanation_video === 'true'
+            : false,
+        overall_questions_explanation_video:
+          effectiveQuizType === 'questions' &&
+          (show_overall_questions_explanation_video === true ||
+            show_overall_questions_explanation_video === 'true')
+            ? overall_questions_explanation_video || null
+            : null,
         date: new Date(),
         comment: comment && comment.trim() !== '' ? comment.trim() : null,
         state: finalState,
@@ -202,7 +213,7 @@ export default async function handler(req, res) {
 
     if (req.method === 'PUT') {
       const { id } = req.query;
-      const { lesson_name, timer, questions, lesson, course, courseType, center, quiz_type, deadline_type, deadline_date, deadline_time, shuffle_questions_and_answers, show_details_after_submitting, comment, pdf_file_name, pdf_url, state, allow_downloading } = req.body;
+      const { lesson_name, timer, questions, lesson, course, courseType, center, quiz_type, deadline_type, deadline_date, deadline_time, shuffle_questions_and_answers, show_details_after_submitting, show_overall_questions_explanation_video, overall_questions_explanation_video, comment, pdf_file_name, pdf_url, state, allow_downloading } = req.body;
 
       const effectiveQuizType = quiz_type || 'questions';
 
@@ -298,6 +309,17 @@ export default async function handler(req, res) {
         timer: effectiveQuizType === 'questions' ? (timer === null || timer === undefined ? null : parseInt(timer)) : null,
         shuffle_questions_and_answers: effectiveQuizType === 'questions' ? (shuffle_questions_and_answers === true || shuffle_questions_and_answers === 'true') : false,
         show_details_after_submitting: effectiveQuizType === 'questions' ? (show_details_after_submitting === true || show_details_after_submitting === 'true') : false,
+        show_overall_questions_explanation_video:
+          effectiveQuizType === 'questions'
+            ? show_overall_questions_explanation_video === true ||
+              show_overall_questions_explanation_video === 'true'
+            : false,
+        overall_questions_explanation_video:
+          effectiveQuizType === 'questions' &&
+          (show_overall_questions_explanation_video === true ||
+            show_overall_questions_explanation_video === 'true')
+            ? overall_questions_explanation_video || null
+            : null,
         comment: comment && comment.trim() !== '' ? comment.trim() : null,
       };
 

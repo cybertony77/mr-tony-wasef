@@ -1,12 +1,14 @@
 const DESMOS_API_VERSION = 'v1.12';
+/** Same-origin proxy — DESMOS_API_KEY stays on the server */
+const DESMOS_PROXY_SRC = '/api/desmos/calculator.js';
 
 let loadPromise = null;
-let loadedApiKey = null;
+let loadedViaProxy = false;
 
 /**
  * Load Desmos calculator.js once (shared endpoint for all calculator types).
- * Official v1.12: https://www.desmos.com/api/v1.12/calculator.js?apiKey=...
- * Do NOT load geometry.js separately.
+ * Prefer the authenticated same-origin proxy so the API key is never in client config.
+ * Optional apiKey fallback is kept for legacy callers but should not be used.
  */
 export function loadDesmosApi(apiKey) {
   if (typeof window === 'undefined') {
@@ -14,19 +16,20 @@ export function loadDesmosApi(apiKey) {
   }
 
   const key = String(apiKey || '').trim();
-  if (!key) {
-    return Promise.reject(new Error('Missing DESMOS_API_KEY'));
-  }
+  const useProxy = !key;
+  const scriptSrc = useProxy
+    ? DESMOS_PROXY_SRC
+    : `https://www.desmos.com/api/${DESMOS_API_VERSION}/calculator.js?apiKey=${encodeURIComponent(key)}`;
 
-  if (window.Desmos?.GraphingCalculator && loadedApiKey === key) {
+  if (window.Desmos?.GraphingCalculator && (useProxy ? loadedViaProxy : true)) {
     return Promise.resolve(window.Desmos);
   }
 
-  if (loadPromise && loadedApiKey === key) {
+  if (loadPromise && (useProxy ? loadedViaProxy : true)) {
     return loadPromise;
   }
 
-  loadedApiKey = key;
+  loadedViaProxy = useProxy;
   loadPromise = new Promise((resolve, reject) => {
     const existing = document.querySelector('script[data-desmos-api="true"]');
     if (existing && window.Desmos?.GraphingCalculator) {
@@ -39,13 +42,13 @@ export function loadDesmosApi(apiKey) {
       const onLoad = () => {
         if (window.Desmos?.GraphingCalculator) resolve(window.Desmos);
         else {
-          loadedApiKey = null;
+          loadedViaProxy = false;
           loadPromise = null;
           reject(new Error('Desmos API loaded but constructors are unavailable'));
         }
       };
       const onError = () => {
-        loadedApiKey = null;
+        loadedViaProxy = false;
         loadPromise = null;
         reject(new Error('Failed to load Desmos API'));
       };
@@ -55,7 +58,7 @@ export function loadDesmosApi(apiKey) {
     }
 
     const script = document.createElement('script');
-    script.src = `https://www.desmos.com/api/${DESMOS_API_VERSION}/calculator.js?apiKey=${encodeURIComponent(key)}`;
+    script.src = scriptSrc;
     script.async = true;
     script.dataset.desmosApi = 'true';
     script.onload = () => {
@@ -63,13 +66,13 @@ export function loadDesmosApi(apiKey) {
       if (window.Desmos?.GraphingCalculator) {
         resolve(window.Desmos);
       } else {
-        loadedApiKey = null;
+        loadedViaProxy = false;
         loadPromise = null;
         reject(new Error('Desmos API loaded but GraphingCalculator is unavailable'));
       }
     };
     script.onerror = () => {
-      loadedApiKey = null;
+      loadedViaProxy = false;
       loadPromise = null;
       script.remove();
       reject(new Error('Failed to load Desmos calculator.js'));

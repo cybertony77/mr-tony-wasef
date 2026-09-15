@@ -3,6 +3,11 @@ import { useRouter } from "next/router";
 import Title from "../components/Title";
 import apiClient from '../lib/axios';
 import NeedHelp from '../components/NeedHelp';
+import {
+  setPendingForgotLogin,
+  setPendingForgotUsername,
+  updatePendingForgotPassword,
+} from '../lib/ephemeralCredentials';
 
 // Access Denied Preloader Component (same as _app.js)
 function AccessDeniedPreloader() {
@@ -81,10 +86,7 @@ export default function ForgotPassword() {
 
         if (response.data.valid) {
           setIsAuthorized(true);
-          // Save username/id to sessionStorage
-          if (typeof window !== 'undefined') {
-            sessionStorage.setItem('forgot_password_username', id);
-          }
+          setPendingForgotUsername(id);
         } else {
           // Invalid signature - show access denied preloader then redirect
           setShowAccessDenied(true);
@@ -139,15 +141,10 @@ export default function ForgotPassword() {
     setError("");
     setResetFailed(false);
     
-    // Save password to sessionStorage when user types
-    if (typeof window !== 'undefined') {
-      if (e.target.name === 'newPassword') {
-        if (newValue) {
-          sessionStorage.setItem('forgot_password_password', newValue);
-        } else {
-          sessionStorage.removeItem('forgot_password_password');
-        }
-      }
+    // Save password in memory for first login autofill
+    if (e.target.name === 'newPassword') {
+      updatePendingForgotPassword(newValue || '');
+      if (id) setPendingForgotLogin(id, newValue || '');
     }
   };
 
@@ -185,8 +182,9 @@ export default function ForgotPassword() {
 
       setIsSubmitting(false);
       setResetSuccess(true);
+      // Keep credentials in memory for first login autofill
+      setPendingForgotLogin(id, form.newPassword);
       setForm({ newPassword: "", confirmPassword: "" });
-      // Keep password in sessionStorage for login page
     } catch (err) {
       setError(err.response?.data?.error || "❌ Failed to reset password");
       setIsSubmitting(false);

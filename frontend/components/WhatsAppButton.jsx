@@ -17,7 +17,7 @@ const WhatsAppButton = ({ student, recipient = 'parent', balanceCounterSpace = t
   const updateMessageStateMutation = useUpdateMessageState();
   const isCoolingDown = cooldownLeft > 0;
 
-  const handleWhatsAppClick = () => {
+  const handleWhatsAppClick = async () => {
     if (isCoolingDown) return;
     setMessage('');
 
@@ -176,7 +176,7 @@ Note :-
 
 We wish you get high grades 😊❤`;
       } else {
-        const publicLink = generatePublicStudentLink(student.id.toString());
+        const publicLink = await generatePublicStudentLink(student.id.toString());
         whatsappMessage += `
 
 Please visit the following link to check ${firstName}'s grades and progress: ⬇️

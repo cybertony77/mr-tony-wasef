@@ -65,14 +65,12 @@ async function redirectToLoginOnUnauthorized() {
   }
 
   handlingUnauthorized = true;
-  try {
-    await fetch('/api/auth/logout', {
-      method: 'POST',
-      credentials: 'include',
-    });
-  } catch (_) {
-    // Ignore logout failures — still send the user to login
-  }
+
+  // Clear session in the background — do not wait (redirect within ~0.5s)
+  void fetch('/api/auth/logout', {
+    method: 'POST',
+    credentials: 'include',
+  }).catch(() => {});
 
   window.location.assign('/');
 }
@@ -107,6 +105,9 @@ apiClient.interceptors.response.use(
   (error) => {
     const status = error.response?.status;
     const url = error.config?.url || '';
+    const code = String(
+      error.response?.data?.code || error.response?.data?.error || ''
+    ).toLowerCase();
     const details = String(
       error.response?.data?.message ||
         error.response?.data?.error ||
@@ -122,12 +123,23 @@ apiClient.interceptors.response.use(
       details.includes('invalid token') ||
       details.includes('unauthorized');
 
-    if (looksLikeAuthFailure) {
+    const subscriptionBlocked =
+      status === 403 &&
+      (code === 'subscription_inactive' ||
+        details.includes('subscription_inactive') ||
+        details.includes('subscription_expired'));
+
+    if (looksLikeAuthFailure || subscriptionBlocked) {
       if (!shouldSkipUnauthorizedRedirect(url)) {
         redirectToLoginOnUnauthorized();
       }
       // Soft log — avoid console.error(Error) which triggers Next.js overlay in dev
-      console.warn('Session expired or unauthorized:', url);
+      console.warn(
+        subscriptionBlocked
+          ? 'Subscription inactive — redirecting to login:'
+          : 'Session expired or unauthorized:',
+        url
+      );
       return Promise.reject(error);
     }
 

@@ -14,6 +14,7 @@ import { useNationalSystem, useSystemConfig, getCourseFieldLabels } from '../../
 import PhoneInput from 'react-phone-input-2';
 import 'react-phone-input-2/lib/style.css';
 import { formatPhoneForDB, validateEgyptPhone, handleEgyptPhoneKeyDown } from '../../lib/phoneUtils';
+import { useFieldErrorShake, FIELD_ERROR_SHAKE_CSS } from '../../lib/fieldErrorShake';
 
 const ADD_STUDENT_PREFERENCES_KEY = 'add_student_preferences';
 
@@ -214,6 +215,8 @@ export default function AddStudent() {
   const phoneReady = formatPhoneForDB(form.phone).length >= 11;
   const phoneTaken = isNational && phoneReady && !phoneCheck.isLoading && phoneCheck.data?.exists === true;
   const phoneAvailable = isNational && phoneReady && !phoneCheck.isLoading && phoneCheck.data?.exists === false;
+  const { shakeClass: phoneShakeClass, labelClass: phoneLabelClass } =
+    useFieldErrorShake(phoneTaken, form.phone);
 
   // Check if student ID is available
   const checkStudentId = async (id) => {
@@ -642,9 +645,9 @@ Best regards
           }
           .form-input:focus {
             outline: none;
-            border-color: #87CEEB;
+            border-color: #1fa8dc;
             background: white;
-            box-shadow: 0 0 0 3px rgba(135, 206, 235, 0.1);
+            box-shadow: 0 0 0 3px rgba(31, 168, 220, 0.15);
           }
           :global(.react-tel-input .form-control),
           :global(.phone-input) {
@@ -676,9 +679,9 @@ Best regards
           :global(.react-tel-input .form-control:focus),
           :global(.phone-input:focus) {
             outline: none !important;
-            border-color: #87CEEB !important;
+            border-color: #1fa8dc !important;
             background: white !important;
-            box-shadow: 0 0 0 3px rgba(135, 206, 235, 0.1) !important;
+            box-shadow: 0 0 0 3px rgba(31, 168, 220, 0.15) !important;
           }
           :global(.react-tel-input:has(.flag-dropdown.open) .form-control),
           :global(.react-tel-input:has(.flag-dropdown.open) .form-control:focus) {
@@ -874,6 +877,7 @@ Best regards
             box-shadow: 0 4px 15px rgba(37, 211, 102, 0.4);
           }
         `}</style>
+        <style jsx global>{FIELD_ERROR_SHAKE_CSS}</style>
         <Title>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <Image src="/user-plus2.svg" alt="Add Student" width={32} height={32} />
@@ -1003,8 +1007,8 @@ Best regards
                 autocomplete="off"
               />
             </div>
-            <div className="form-group">
-              <label>Phone <span style={{color: 'red'}}>*</span></label>
+            <div className={`form-group ${phoneShakeClass}`}>
+              <label className={phoneLabelClass}>Phone <span style={{color: 'red'}}>*</span></label>
               <PhoneInput
                 country="eg"
                 enableSearch

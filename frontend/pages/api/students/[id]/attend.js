@@ -2,11 +2,13 @@ import { MongoClient } from 'mongodb';
 import fs from 'fs';
 import path from 'path';
 import { authMiddleware } from '../../../../lib/authMiddleware';
+import {requireStaff, isForbiddenError, forbiddenJson} from '../../../../lib/requireStaff';
 import {
   createDefaultStudentLesson,
   getStudentLesson,
   mergeStudentLesson,
 } from '../../../../lib/studentLessons';
+import { recordPaymentSessionChange } from '../../../../lib/paymentHistoryServer';
 
 // Load environment variables from env.config
 function loadEnvConfig() {
@@ -93,7 +95,13 @@ export default async function handler(req, res) {
   
   const { id } = req.query;
   const student_id = parseInt(id);
-  const { attended, lastAttendance, lastAttendanceCenter, attendanceLesson } = req.body;
+  const {
+    attended,
+    lastAttendance,
+    lastAttendanceCenter,
+    attendanceLesson,
+    removeLesson,
+  } = req.body;
   
   if (attendanceLesson === undefined || attendanceLesson === null) {
     console.log('❌ attendanceLesson missing in request body for student', student_id);
@@ -110,6 +118,7 @@ export default async function handler(req, res) {
     
     // Verify authentication
     const user = await authMiddleware(req);
+    await requireStaff(user);
     console.log('✅ Authentication successful for user:', user.assistant_id);
     
     // Get the student data first
@@ -164,7 +173,12 @@ export default async function handler(req, res) {
       }
     };
 
-    await ensureLessonExists();
+    // Scan reverse removes the lesson key — do not create it first
+    if (!(attended === false && removeLesson === true)) {
+      await ensureLessonExists();
+    } else if (!student.lessons || Array.isArray(student.lessons)) {
+      student.lessons = {};
+    }
 
     const PAYMENT_SYSTEM_ENABLED = isPaymentSystemEnabled();
     const payment = normalizePayment(student.payment);
@@ -177,6 +191,66 @@ export default async function handler(req, res) {
       student.payment = payment;
     } else {
       student.payment = { ...student.payment, numberOfSessions: payment.numberOfSessions };
+    }
+
+    // Scan-page reverse: remove the lesson key entirely (do not leave as absent)
+    if (!attended && removeLesson === true) {
+      const currentSessions = payment.numberOfSessions;
+      const existingLesson = getStudentLesson(student.lessons, lessonName);
+      const wasLessonPaid = existingLesson && existingLesson.paid === true;
+
+      let nextLessons;
+      if (
+        !student.lessons ||
+        Array.isArray(student.lessons) ||
+        typeof student.lessons !== 'object'
+      ) {
+        nextLessons = {};
+      } else {
+        nextLessons = { ...student.lessons };
+        delete nextLessons[lessonName];
+      }
+
+      let sessionDelta = 0;
+      if (PAYMENT_SYSTEM_ENABLED && wasLessonPaid) {
+        sessionDelta = 1;
+      }
+
+      const result = await db.collection('students').updateOne(
+        { id: student_id },
+        { $set: { lessons: nextLessons } }
+      );
+
+      if (result.matchedCount === 0) {
+        console.log('❌ Failed to update student:', student_id);
+        return res.status(404).json({ error: 'Student not found' });
+      }
+
+      let nextSessions = currentSessions;
+      if (sessionDelta !== 0) {
+        const payRes = await recordPaymentSessionChange(db, student_id, {
+          delta: sessionDelta,
+          type: 'attendance_scan',
+          reason: `Scan reverse attendance — removed lesson ${lessonName}`,
+          lesson: lessonName,
+          by: user?.name || 'scan',
+        });
+        nextSessions = payRes?.balanceAfter ?? currentSessions + sessionDelta;
+      }
+      console.log('✅ Lesson removed from student after scan reverse:', lessonName);
+
+      const historyDeleteResult = await db.collection('history').deleteMany({
+        studentId: student_id,
+        lesson: lessonName,
+      });
+      console.log('🗑️ Removed', historyDeleteResult.deletedCount, 'history records');
+
+      return res.json({
+        success: true,
+        removedLesson: true,
+        payment: { ...payment, numberOfSessions: nextSessions },
+        sessionDelta,
+      });
     }
 
     if (attended) {
@@ -212,13 +286,10 @@ export default async function handler(req, res) {
       const nextLessons = mergeStudentLesson(student.lessons, lessonName, lessonPatch);
       
       console.log('🔧 Updating lessons map for lesson:', lessonName, 'sessionDelta:', sessionDelta);
-      const updateDoc = sessionDelta !== 0
-        ? { $set: { lessons: nextLessons }, $inc: { 'payment.numberOfSessions': sessionDelta } }
-        : { $set: { lessons: nextLessons } };
 
       const result = await db.collection('students').updateOne(
         { id: student_id },
-        updateDoc
+        { $set: { lessons: nextLessons } }
       );
       
       console.log('🔧 Database update result:', result);
@@ -228,7 +299,17 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Student not found' });
       }
 
-      const nextSessions = currentSessions + sessionDelta;
+      let nextSessions = currentSessions;
+      if (sessionDelta !== 0) {
+        const payRes = await recordPaymentSessionChange(db, student_id, {
+          delta: sessionDelta,
+          type: 'attendance_scan',
+          reason: `Scan attendance at ${lastAttendanceCenter || 'center'}`,
+          lesson: lessonName,
+          by: user?.name || 'scan',
+        });
+        nextSessions = payRes?.balanceAfter ?? currentSessions + sessionDelta;
+      }
       console.log('✅ Student marked as attended for lesson', lessonName, 'sessions:', nextSessions);
       
       // Create simplified history record (only studentId and lesson)
@@ -273,13 +354,9 @@ export default async function handler(req, res) {
         sessionDelta = 1;
       }
 
-      const updateDoc = sessionDelta !== 0
-        ? { $set: { lessons: nextLessons }, $inc: { 'payment.numberOfSessions': sessionDelta } }
-        : { $set: { lessons: nextLessons } };
-      
       const result = await db.collection('students').updateOne(
         { id: student_id },
-        updateDoc
+        { $set: { lessons: nextLessons } }
       );
       
       if (result.matchedCount === 0) {
@@ -287,7 +364,17 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Student not found' });
       }
 
-      const nextSessions = currentSessions + sessionDelta;
+      let nextSessions = currentSessions;
+      if (sessionDelta !== 0) {
+        const payRes = await recordPaymentSessionChange(db, student_id, {
+          delta: sessionDelta,
+          type: 'attendance_scan',
+          reason: `Scan un-attend / absence refund for ${lessonName}`,
+          lesson: lessonName,
+          by: user?.name || 'scan',
+        });
+        nextSessions = payRes?.balanceAfter ?? currentSessions + sessionDelta;
+      }
       console.log('✅ Student marked as not attended for lesson', lessonName, 'sessions:', nextSessions);
       
       // Remove simplified history record for this student and lesson
@@ -307,6 +394,8 @@ export default async function handler(req, res) {
     console.error('❌ Error in attend endpoint:', error);
     if (error.message.includes('Unauthorized') || error.message.includes('Invalid token')) {
       res.status(401).json({ error: error.message });
+    } else if (isForbiddenError(error) || error.message === 'Forbidden' || String(error.message||'').includes('Forbidden')) {
+      return res.status(403).json(forbiddenJson(error));
     } else {
       console.error('Error toggling attendance:', error);
       res.status(500).json({ error: 'Internal server error' });

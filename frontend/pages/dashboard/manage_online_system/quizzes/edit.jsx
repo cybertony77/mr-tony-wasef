@@ -13,6 +13,7 @@ import ZoomableImage from '../../../../components/ZoomableImage';
 import AccountStateSelect from '../../../../components/AccountStateSelect';
 import ImportExistingOnlineItemModal from '../../../../components/ImportExistingOnlineItemModal';
 import { formatQuizPickerLabel } from '../../../../lib/importOnlineItemLabels';
+import { uploadPdf, CLOUDINARY_PDF_MAX_BYTES } from '../../../../lib/pdfUpload';
 import { buildQuizImportFormState } from '../../../../lib/importOnlineFormState';
 import { fetchImportedQuestionImageUrls } from '../../../../lib/fetchImportedQuestionImageUrls';
 import { centersMatchDuplicateClient } from '../../../../lib/onlineItemDuplicate';
@@ -36,6 +37,9 @@ import EssayValidAnswersEditor from '../../../../components/online/EssayValidAns
 import DeadlineTimeRow from '../../../../components/DeadlineTimeRow';
 import AllowDownloadingRadio from '../../../../components/AllowDownloadingRadio';
 import UseDesmosInQuestionRadio from '../../../../components/online/UseDesmosInQuestionRadio';
+import QuestionExplanationEditor from '../../../../components/QuestionExplanationEditor';
+import OverallExplanationVideoFields from '../../../../components/OverallExplanationVideoFields';
+import { serializeExplanationVideoForDb, createEmptyExplanationVideoForm, explanationVideoFromDb } from '../../../../lib/explanationVideo';
 import {
   isDeadlineStrictlyInFutureEgypt,
   getEgyptYmdToday,
@@ -71,6 +75,8 @@ export default function EditQuiz() {
     timer: null,
     shuffle_questions_and_answers: false,
     show_details_after_submitting: false,
+    show_overall_questions_explanation_video: false,
+    overall_questions_explanation_video: createEmptyExplanationVideoForm(),
     pdf_file_name: '',
     pdf_url: '',
     allow_downloading: true,
@@ -234,6 +240,15 @@ export default function EditQuiz() {
         timer: quizData.timer || null,
         shuffle_questions_and_answers: quizData.shuffle_questions_and_answers === true || quizData.shuffle_questions_and_answers === 'true' ? true : false,
         show_details_after_submitting: quizData.show_details_after_submitting === true || quizData.show_details_after_submitting === 'true' ? true : false,
+        show_overall_questions_explanation_video:
+          quizData.show_overall_questions_explanation_video === true ||
+          quizData.show_overall_questions_explanation_video === 'true' ||
+          Boolean(quizData.overall_questions_explanation_video?.video_id)
+            ? true
+            : false,
+        overall_questions_explanation_video: explanationVideoFromDb(
+          quizData.overall_questions_explanation_video
+        ),
         pdf_file_name: quizData.pdf_file_name || '',
         pdf_url: quizData.pdf_url || '',
         allow_downloading: quizData.allow_downloading !== false && quizData.allow_downloading !== 'false',
@@ -921,6 +936,12 @@ export default function EditQuiz() {
       timer: formData.quiz_type === 'questions' && formData.timer_type === 'with_timer' ? parseInt(formData.timer) : null,
       shuffle_questions_and_answers: formData.quiz_type === 'questions' ? formData.shuffle_questions_and_answers : false,
       show_details_after_submitting: formData.quiz_type === 'questions' ? formData.show_details_after_submitting : false,
+      show_overall_questions_explanation_video:
+        formData.quiz_type === 'questions' ? formData.show_overall_questions_explanation_video === true : false,
+      overall_questions_explanation_video:
+        formData.quiz_type === 'questions' && formData.show_overall_questions_explanation_video === true
+          ? serializeExplanationVideoForDb(formData.overall_questions_explanation_video)
+          : null,
     };
 
     if (accountState) {
@@ -939,6 +960,7 @@ export default function EditQuiz() {
           question_text: q.question_text || '',
           ...buildQuestionPicturesPayload(getQuestionPictures(q)),
           question_explanation: q.question_explanation || '',
+          question_explanation_video: serializeExplanationVideoForDb(q.question_explanation_video),
           use_desmos: q.use_desmos === true || q.use_desmos === 'true',
         };
         if (type === QUESTION_TYPE_ESSAY) {
@@ -1397,14 +1419,22 @@ export default function EditQuiz() {
                       onChange={async (e) => {
                         const file = e.target.files[0]; if (!file) return;
                         if (file.type !== 'application/pdf') { setPdfUploadError('Only PDF files are allowed'); return; }
-                        if (file.size > 100 * 1024 * 1024) { setPdfUploadError('File size exceeds 100MB limit'); return; }
+                        const useR2 = systemConfig?.cloudflare_r2 === true;
+                        const maxBytes = useR2 ? 100 * 1024 * 1024 : CLOUDINARY_PDF_MAX_BYTES;
+                        if (file.size > maxBytes) {
+                          const maxMb = Math.round(maxBytes / (1024 * 1024));
+                          setPdfUploadError(`File size exceeds ${maxMb}MB limit`);
+                          return;
+                        }
                         setPdfUploadError('');
                         setPdfUploading(true);
                         setPdfUploadProgress(0);
                         try {
-                          const { uploadToR2Direct } = await import('../../../../lib/r2DirectUpload');
-                          const result = await uploadToR2Direct(file, {
+                          const result = await uploadPdf(file, {
                             prefix: 'pdfs/Quizs-PDFs',
+                            cloudinaryFolder: 'Quizs-PDFs',
+                            cloudflareR2: useR2,
+                            maxR2Bytes: 100 * 1024 * 1024,
                             onProgress: (percent) => setPdfUploadProgress(percent),
                           });
                           if (result?.url) {
@@ -1636,6 +1666,27 @@ export default function EditQuiz() {
                 </label>
               </div>
             </div>
+
+                
+                {/* Show overall questions explanation video */}
+                <OverallExplanationVideoFields
+                  key={dataLoaded ? `overall-loaded-${id}` : `overall-pending-${id}`}
+                  syncKey={dataLoaded ? `loaded-${id}` : `pending-${id}`}
+                  enabled={formData.show_overall_questions_explanation_video === true}
+                  onEnabledChange={(val) =>
+                    setFormData({
+                      ...formData,
+                      show_overall_questions_explanation_video: val,
+                      ...(val
+                        ? {}
+                        : { overall_questions_explanation_video: createEmptyExplanationVideoForm() }),
+                    })
+                  }
+                  videoValue={formData.overall_questions_explanation_video}
+                  onVideoChange={(val) =>
+                    setFormData({ ...formData, overall_questions_explanation_video: val })
+                  }
+                />
 
                 {/* Questions */}
                 {formData.questions && Array.isArray(formData.questions) && formData.questions.map((question, qIdx) => (
@@ -1940,27 +1991,14 @@ export default function EditQuiz() {
                 />
 
                 {/* Question Explanation */}
-                <div style={{ marginBottom: '16px' }}>
-                  <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', textAlign: 'left' }}>
-                    Question Explanation
-                  </label>
-                  <textarea
-                    value={question.question_explanation || ''}
-                    onChange={(e) => handleQuestionChange(qIdx, 'question_explanation', e.target.value)}
-                    placeholder="Enter explanation for this question (optional)"
-                    rows={4}
-                    style={{
-                      width: '100%',
-                      padding: '12px 16px',
-                      border: '2px solid #e9ecef',
-                      borderRadius: '10px',
-                      fontSize: '1rem',
-                      fontFamily: 'inherit',
-                      resize: 'vertical',
-                      minHeight: '100px'
-                    }}
-                  />
-                </div>
+                <QuestionExplanationEditor
+                  key={`expl-${question._clientKey || qIdx}`}
+                  syncKey={String(question._clientKey || qIdx)}
+                  textValue={question.question_explanation || ''}
+                  onTextChange={(val) => handleQuestionChange(qIdx, 'question_explanation', val)}
+                  videoValue={question.question_explanation_video}
+                  onVideoChange={(val) => handleQuestionChange(qIdx, 'question_explanation_video', val)}
+                />
               </div>
             ))}
 

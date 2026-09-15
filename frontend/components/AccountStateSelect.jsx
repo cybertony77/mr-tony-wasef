@@ -15,7 +15,6 @@ const AccountStateSelect = ({
   const dropdownRef = useRef(null);
 
   const options = [
-    { value: '', label: '✕ Clear selection', color: '#dc3545', isClear: true },
     { value: 'Activated', label: '✅ Activated', color: '#28a745' },
     ...(includePending
       ? [{ value: 'Pending', label: '⏳ Pending', color: '#b36b00' }]
@@ -23,7 +22,10 @@ const AccountStateSelect = ({
     { value: 'Deactivated', label: '❌ Deactivated', color: '#dc3545' }
   ];
 
-  const selectedOption = options.find(opt => opt.value === value);
+  // Empty/null = nothing selected (show placeholder). Do not treat '' as "Clear selection".
+  const selectedOption = value
+    ? options.find((opt) => opt.value === value) || null
+    : null;
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -36,8 +38,8 @@ const AccountStateSelect = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleSelect = (option) => {
-    onChange(option.value === '' ? null : option.value);
+  const handleSelect = (optionValue) => {
+    onChange(optionValue === '' || optionValue == null ? null : optionValue);
     setIsOpen(false);
   };
 
@@ -96,20 +98,37 @@ const AccountStateSelect = ({
             overflowY: 'auto',
             marginTop: '4px'
           }}>
-            {options.map((option) => (
+            {selectedOption && (
               <div
-                key={option.value === '' ? 'clear' : option.value}
                 style={{
                   padding: '12px 16px',
                   cursor: 'pointer',
                   borderBottom: '1px solid #f8f9fa',
                   transition: 'background-color 0.2s ease',
-                  color: option.isClear ? '#dc3545' : '#000000',
-                  fontWeight: option.isClear ? '500' : 'normal'
+                  color: '#dc3545',
+                  fontWeight: '500'
                 }}
-                onClick={() => handleSelect(option)}
-                onMouseEnter={(e) => e.target.style.backgroundColor = option.isClear ? '#fff5f5' : '#f8f9fa'}
-                onMouseLeave={(e) => e.target.style.backgroundColor = '#ffffff'}
+                onClick={() => handleSelect(null)}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#fff5f5'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#ffffff'; }}
+              >
+                ✕ Clear selection
+              </div>
+            )}
+            {options.map((option) => (
+              <div
+                key={option.value}
+                style={{
+                  padding: '12px 16px',
+                  cursor: 'pointer',
+                  borderBottom: '1px solid #f8f9fa',
+                  transition: 'background-color 0.2s ease',
+                  color: '#000000',
+                  fontWeight: 'normal'
+                }}
+                onClick={() => handleSelect(option.value)}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f8f9fa'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#ffffff'; }}
               >
                 {option.label}
               </div>

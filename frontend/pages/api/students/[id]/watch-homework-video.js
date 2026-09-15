@@ -3,6 +3,11 @@ import fs from 'fs';
 import path from 'path';
 import { authMiddleware } from '../../../../lib/authMiddleware';
 import { mergeStudentLesson } from '../../../../lib/studentLessons';
+import {
+  makeVideoPartKey,
+  normalizePartViews,
+  resolveViewsPerVideoLimit,
+} from '../../../../lib/videoPartViews';
 
 function loadEnvConfig() {
   try {
@@ -75,7 +80,8 @@ export default async function handler(req, res) {
       });
     }
 
-    const { session_id, action, watched_percent } = req.body; // action: 'view' or 'finish'
+    const { session_id, action, watched_percent, video_part_key, video_id, video_index } = req.body; // action: 'view' | 'finish' | 'decrement_session_unlock_views'
+    const partKey = makeVideoPartKey(video_part_key || video_id, video_index);
 
     if (!session_id) {
       return res.status(400).json({ error: 'Session ID is required' });
@@ -94,6 +100,48 @@ export default async function handler(req, res) {
     const session = await db.collection('homeworks_videos').findOne({ _id: new ObjectId(session_id) });
     if (!session) {
       return res.status(404).json({ error: 'Homework video session not found' });
+    }
+
+    if (action === 'decrement_session_unlock_views') {
+      const sessionIdStr = String(session_id);
+      const list = Array.isArray(student.homeworks_videos) ? [...student.homeworks_videos] : [];
+      const idx = list.findIndex((s) => {
+        const videoIdStr = typeof s.video_id === 'string' ? s.video_id : s.video_id?.toString();
+        return videoIdStr === sessionIdStr && s.paid_with_session === true;
+      });
+      if (idx < 0) {
+        return res.status(200).json({ success: true, skipped: true });
+      }
+      const entry = list[idx];
+      const limit = resolveViewsPerVideoLimit(entry, 1);
+      const partViews = normalizePartViews(entry.part_views);
+      const used = Number(partViews[partKey]) || 0;
+      if (used >= limit) {
+        return res.status(200).json({
+          success: true,
+          number_of_views: 0,
+          exhausted: true,
+          entry: { ...entry, part_views: partViews, views_per_video_limit: limit },
+        });
+      }
+      partViews[partKey] = used + 1;
+      const remaining = Math.max(0, limit - partViews[partKey]);
+      const updatedEntry = {
+        ...entry,
+        views_per_video_limit: limit,
+        part_views: partViews,
+      };
+      list[idx] = updatedEntry;
+      await db.collection('students').updateOne(
+        { id: student_id },
+        { $set: { homeworks_videos: list } }
+      );
+      return res.status(200).json({
+        success: true,
+        number_of_views: remaining,
+        exhausted: remaining <= 0,
+        entry: updatedEntry,
+      });
     }
 
     if (action === 'view') {

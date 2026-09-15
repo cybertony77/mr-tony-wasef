@@ -1,4 +1,6 @@
 import { getCloudinary } from '../../../lib/cloudinaryConfig';
+import { authMiddleware, isAuthError } from '../../../lib/authMiddleware';
+import {requireStaff, isForbiddenError, forbiddenJson} from '../../../lib/requireStaff';
 
 const cloudinary = getCloudinary();
 
@@ -39,13 +41,10 @@ async function uploadPdfWithRetry(file, options) {
 }
 
 export default async function handler(req, res) {
-  // Allow browser preflight if this route is ever called cross-origin
   const origin = req.headers.origin;
-  if (origin) {
+  if (origin && /^https?:\/\//i.test(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
-  } else {
-    res.setHeader('Access-Control-Allow-Origin', '*');
   }
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -59,6 +58,9 @@ export default async function handler(req, res) {
   }
 
   try {
+    const user = await authMiddleware(req);
+    await requireStaff(user);
+
     if (!req.body || !req.body.file) {
       return res.status(400).json({ error: 'No file provided' });
     }
@@ -98,6 +100,13 @@ export default async function handler(req, res) {
       url: uploadResult.secure_url,
     });
   } catch (error) {
+    if (isAuthError(error)) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    if (isForbiddenError(error)) {
+      return res.status(403).json(forbiddenJson(error));
+    }
+
     console.error('Cloudinary PDF upload error:', error?.message || error);
 
     if (error.http_code === 400) {

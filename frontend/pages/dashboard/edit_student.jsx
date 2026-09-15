@@ -15,6 +15,7 @@ import PhoneInput from 'react-phone-input-2';
 import 'react-phone-input-2/lib/style.css';
 import { formatPhoneForDB, validateEgyptPhone, handleEgyptPhoneKeyDown } from '../../lib/phoneUtils';
 import { sortStudentsByName } from '../../lib/sortStudentsByName';
+import { useFieldErrorShake, FIELD_ERROR_SHAKE_CSS } from '../../lib/fieldErrorShake';
 
 // Helper to normalize grade values to match select options
 function normalizeGrade(grade) {
@@ -62,6 +63,8 @@ export default function EditStudent() {
     phoneReady &&
     !phoneCheck.isLoading &&
     (phoneUnchanged || phoneCheck.data?.exists === false);
+  const { shakeClass: phoneShakeClass, labelClass: phoneLabelClass } =
+    useFieldErrorShake(phoneTaken, formData.phone);
   useEffect(() => {
     if (error) {
       const timer = setTimeout(() => setError(""), 5000);
@@ -484,9 +487,9 @@ export default function EditStudent() {
         }
         .fetch-input:focus {
           outline: none;
-          border-color: #667eea;
+          border-color: #1fa8dc;
           background: white;
-          box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+          box-shadow: 0 0 0 3px rgba(31, 168, 220, 0.15);
         }
         .fetch-btn {
           background: linear-gradient(135deg, #1FA8DC 0%, #87CEEB 100%);
@@ -564,9 +567,9 @@ export default function EditStudent() {
         }
         .form-input:focus {
           outline: none;
-          border-color: #87CEEB;
+          border-color: #1fa8dc;
           background: white;
-          box-shadow: 0 0 0 3px rgba(135, 206, 235, 0.1);
+          box-shadow: 0 0 0 3px rgba(31, 168, 220, 0.15);
         }
         .form-input::placeholder {
           color: #adb5bd;
@@ -657,8 +660,8 @@ export default function EditStudent() {
         }
         .select-styled:focus {
           outline: none;
-          border-color: #87CEEB;
-          box-shadow: 0 0 0 3px rgba(135, 206, 235, 0.1);
+          border-color: #1fa8dc;
+          box-shadow: 0 0 0 3px rgba(31, 168, 220, 0.15);
         }
         .changes-indicator {
           background: linear-gradient(135deg, #17a2b8 0%, #20c997 100%);
@@ -724,6 +727,7 @@ export default function EditStudent() {
           }
         }
       `}</style>
+      <style jsx global>{FIELD_ERROR_SHAKE_CSS}</style>
 
       <Title>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -914,8 +918,8 @@ export default function EditStudent() {
                   autocomplete="off"
                 />
             </div>
-              <div className="form-group">
-              <label>Phone <span style={{color: 'red'}}>*</span></label>
+              <div className={`form-group ${phoneShakeClass}`}>
+              <label className={phoneLabelClass}>Phone <span style={{color: 'red'}}>*</span></label>
                 <PhoneInput
                   country="eg"
                   enableSearch
@@ -950,7 +954,7 @@ export default function EditStudent() {
                     )}
                   </div>
                 )}
-              </div>
+            </div>
               <div className="form-group">
               <label>Parent's Phone (Whatsapp) <span style={{color: 'red'}}>*</span></label>
                 <PhoneInput

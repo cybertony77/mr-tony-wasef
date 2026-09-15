@@ -2,7 +2,7 @@ import { MongoClient, ObjectId } from 'mongodb';
 import fs from 'fs';
 import path from 'path';
 import { authMiddleware } from '../../../../lib/authMiddleware';
-import { verifySignature } from '../../../../lib/hmac';
+import { verifySignature } from '../../../../lib/hmacServer';
 import { itemCenterMatchesStudentMainCenter } from '../../../../lib/studentCenterMatch';
 
 function loadEnvConfig() {
@@ -66,10 +66,10 @@ export default async function handler(req, res) {
     if (!isPublicAccess) {
       // Verify authentication - allow students to view their own results, or admins/assistants/developers to view any student
       const user = await authMiddleware(req);
-      const userId = user.assistant_id || user.id; // JWT contains assistant_id for students
+      const userId = Number(user.assistant_id || user.id);
       
       // Students can only view their own results
-      if (user.role === 'student' && userId !== student_id) {
+      if (user.role === 'student' && userId !== Number(student_id)) {
         return res.status(403).json({ error: 'Forbidden: You can only view your own results' });
       }
       

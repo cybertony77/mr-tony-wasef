@@ -9,6 +9,7 @@ export const CODE_ERROR = {
   DAYS_EXPIRED: 'days_expired',
   NO_VIEWS_REMAINING: 'no_views_remaining',
   USED_BY_ANOTHER: 'used_by_another',
+  USED_ON_ANOTHER_SESSION: 'used_on_another_session',
   FREE_VIEWING_ENDED: 'free_viewing_ended',
   NO_VIDEO_PENDING: 'no_video_pending',
   VERIFY_FAILED: 'verify_failed',
@@ -41,6 +42,8 @@ const MESSAGES = {
       'This VVC code has no views left. Each view counts when you start watching the video.',
     [CODE_ERROR.USED_BY_ANOTHER]:
       'This VVC code was already redeemed by another student and cannot be used on your account.',
+    [CODE_ERROR.USED_ON_ANOTHER_SESSION]:
+      'This VVC code was already used to open another session. It can only be used for that same session.',
     [CODE_ERROR.FREE_VIEWING_ENDED]:
       'Your free viewing for this session has ended. Enter a valid VVC code to continue watching.',
     [CODE_ERROR.NO_VIDEO_PENDING]:
@@ -73,6 +76,8 @@ const MESSAGES = {
       'This VHC code has no views left. Each view counts when you start watching the homework video.',
     [CODE_ERROR.USED_BY_ANOTHER]:
       'This VHC code was already redeemed by another student and cannot be used on your account.',
+    [CODE_ERROR.USED_ON_ANOTHER_SESSION]:
+      'This VHC code was already used to open another homework video. It can only be used for that same video.',
     [CODE_ERROR.FREE_VIEWING_ENDED]:
       'Free access for this homework video has ended. Enter a valid VHC code to continue watching.',
     [CODE_ERROR.NO_VIDEO_PENDING]:
@@ -151,6 +156,12 @@ export function inferErrorCodeFromLegacyError(error, codeSettings) {
     return CODE_ERROR.NO_VIEWS_REMAINING;
   }
   if (text.includes('already used by another')) return CODE_ERROR.USED_BY_ANOTHER;
+  if (
+    text.includes('already used to open another') ||
+    text.includes('only be used for that same')
+  ) {
+    return CODE_ERROR.USED_ON_ANOTHER_SESSION;
+  }
   if (text.includes('free viewing ended')) return CODE_ERROR.FREE_VIEWING_ENDED;
   if (text.includes('no video pending')) return CODE_ERROR.NO_VIDEO_PENDING;
   if (text.includes('failed to verify') || text.includes('failed to decrement')) {

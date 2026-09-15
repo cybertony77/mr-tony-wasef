@@ -1,66 +1,20 @@
-import crypto from 'crypto';
-
-const SECRET = "STD_";
-
 /**
- * Generate HMAC signature for a student ID
- * @param {number|string} studentId - The student ID
- * @returns {string} - The HMAC signature
+ * Client-safe stubs. Real HMAC lives in hmacServer.js (API routes only).
+ * Do not put secrets here — this file is bundled for the browser.
  */
-export function generateSignature(studentId) {
-  const message = SECRET + studentId;
-  return crypto.createHash('sha256').update(message).digest('hex');
+
+export function generateSignature() {
+  throw new Error(
+    'Client-side public-link signing is disabled. Use /api/students/public-link'
+  );
 }
 
-/**
- * Verify HMAC signature for a student ID
- * @param {number|string} studentId - The student ID
- * @param {string} signature - The signature to verify
- * @returns {boolean} - True if signature is valid
- */
-export function verifySignature(studentId, signature) {
-  // Input validation
-  if (!studentId || !signature) {
-    console.log('❌ HMAC: Missing studentId or signature');
-    return false;
-  }
-  
-  // Convert to string and trim
-  const cleanStudentId = String(studentId).trim();
-  const cleanSignature = String(signature).trim();
-  
-  if (!cleanStudentId || !cleanSignature) {
-    console.log('❌ HMAC: Empty studentId or signature after trimming');
-    return false;
-  }
-  
-  try {
-    const expectedSignature = generateSignature(cleanStudentId);
-    
-    // Ensure both signatures are the same length
-    if (cleanSignature.length !== expectedSignature.length) {
-      console.log('❌ HMAC: Signature length mismatch');
-      return false;
-    }
-    
-    // Use simple string comparison for browser environment
-    // This is secure enough for our use case since we're comparing hashes
-    const isValid = cleanSignature === expectedSignature;
-    console.log(`🔍 HMAC Verification: ${isValid ? 'VALID' : 'INVALID'}`);
-    return isValid;
-  } catch (error) {
-    console.error('❌ HMAC: Error during verification:', error);
-    return false;
-  }
+export function verifySignature() {
+  // Client must not verify — trust the public API response instead
+  return false;
 }
 
-/**
- * Create a public student info URL
- * @param {number|string} studentId - The student ID
- * @returns {string} - The public URL with signature
- */
 export function createPublicStudentUrl(studentId) {
-  const signature = generateSignature(studentId);
-  return `/dashboard/student_info?id=${studentId}&sig=${signature}`;
+  // Path without sig — callers should use generatePublicStudentLink (async API)
+  return `/dashboard/student_info?id=${encodeURIComponent(String(studentId || ''))}`;
 }
-

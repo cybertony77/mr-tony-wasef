@@ -22,6 +22,8 @@ import DevToolsProtection from "../components/DevToolsProtection";
 import { isIndexablePath } from "../lib/seo";
 
 const SYSTEM_BG_STORAGE_KEY = 'system-page-bg';
+/** Max wait before sending expired/unauthenticated users to login */
+const AUTH_REDIRECT_DELAY_MS = 400;
 
 function readCachedSystemBackground() {
   if (typeof window === 'undefined') return null;
@@ -514,11 +516,11 @@ export default function App({ Component, pageProps, systemBackground }) {
         document.cookie = `redirectAfterLogin=${router.pathname}; path=/; max-age=300`; // 5 minutes
       }
       
-      // Redirect after showing preloader for 1 second
+      // Redirect after a short preloader (≤0.5s)
       setTimeout(() => {
         setShowRedirectToLogin(false); // Reset the state
         router.push("/");
-      }, 1000); // Show preloader for 1 second
+      }, AUTH_REDIRECT_DELAY_MS);
     }
   }, [isLoading, isAuthenticated, router.pathname, publicPages, router, isYoutubeEmbedShell]);
 
@@ -649,7 +651,7 @@ export default function App({ Component, pageProps, systemBackground }) {
     }
   }, [isAuthenticated]);
 
-  // Fetch subscription data when authenticated (only if subscription system is enabled)
+  // Fetch subscription status for admin/assistant only (timer + 3-day warning + expiry logout)
   useEffect(() => {
     // Routes where subscription polling should be disabled (but still allow initial fetch)
     const skipSubscriptionPollingRoutes = [
@@ -663,14 +665,18 @@ export default function App({ Component, pageProps, systemBackground }) {
                              router.pathname.startsWith('/dashboard/manage_online_system/online_mock_exams') ||
                              skipSubscriptionPollingRoutes.includes(router.pathname);
     
-    // Students don't need subscription data at all, so skip entirely on student_dashboard
-    const shouldSkipEntirely = router.pathname.startsWith('/student_dashboard');
-    
-    let isInitialLoad = true; // Track if this is the first load
+    // Everyone except students (admin/assistant/developer)
+    const needsSubscriptionStatus = Boolean(userRole && userRole !== 'student');
     
     const fetchSubscription = async (isBackgroundPoll = false) => {
-      if (!isSubscriptionEnabled || !isAuthenticated || publicPages.includes(router.pathname)) {
+      if (
+        !isSubscriptionEnabled ||
+        !isAuthenticated ||
+        !needsSubscriptionStatus ||
+        publicPages.includes(router.pathname)
+      ) {
         setSubscription(null);
+        setIsLoadingSubscription(false);
         return;
       }
 
@@ -679,7 +685,7 @@ export default function App({ Component, pageProps, systemBackground }) {
         if (!isBackgroundPoll) {
           setIsLoadingSubscription(true);
         }
-        const response = await apiClient.get('/api/subscription');
+        const response = await apiClient.get('/api/subscription/status');
         setSubscription(response.data);
       } catch (error) {
         const status = error.response?.status;
@@ -716,8 +722,7 @@ export default function App({ Component, pageProps, systemBackground }) {
       }
     };
 
-    // Skip subscription entirely on student_dashboard (students don't need it)
-    if (shouldSkipEntirely) {
+    if (!needsSubscriptionStatus) {
       setSubscription(null);
       setIsLoadingSubscription(false);
       return;
@@ -731,22 +736,18 @@ export default function App({ Component, pageProps, systemBackground }) {
     }
 
     // Normal behavior: initial fetch + 30-minute polling
-    // Initial fetch (with loading spinner)
     fetchSubscription(false);
-    isInitialLoad = false;
     
     // Manual control: Refetch subscription every 30 minutes (reduced frequency)
     // Pass true to indicate this is a background poll (no loading spinner)
     const interval = setInterval(() => fetchSubscription(true), 30 * 60 * 1000);
     
     return () => clearInterval(interval);
-  }, [isAuthenticated, router.pathname, publicPages, isSubscriptionEnabled]);
+  }, [isAuthenticated, router.pathname, publicPages, isSubscriptionEnabled, userRole]);
 
-  // Subscription countdown timer calculation
+  // Subscription countdown timer calculation (non-students warning banner)
   useEffect(() => {
-    // Only calculate timer if authenticated and subscription exists
-    // Exclude only students, allow assistant, admin, and developer to see timer
-    if (!isAuthenticated || !subscription || userRole === 'student') {
+    if (!isAuthenticated || !subscription || userRole === 'student' || !userRole) {
       setTimeRemaining(null);
       return;
     }
@@ -803,7 +804,7 @@ export default function App({ Component, pageProps, systemBackground }) {
     };
   }, [subscription, userRole, isAuthenticated]);
 
-  // Check if we should show subscription warning
+  // Check if we should show subscription warning (everyone except students, ≤3 days)
   const shouldShowSubscriptionWarning = () => {
     // Don't show if subscription system is disabled
     if (!isSubscriptionEnabled) {
@@ -815,8 +816,8 @@ export default function App({ Component, pageProps, systemBackground }) {
       return false;
     }
 
-    // Only hide for student role - show for assistant, admin, and developer
-    if (userRole === 'student') {
+    // Only students never see subscription warnings / remaining-time banners
+    if (!userRole || userRole === 'student') {
       return false;
     }
 
@@ -839,10 +840,10 @@ export default function App({ Component, pageProps, systemBackground }) {
     if (subscription.active === true && subscription.date_of_expiration) {
       const now = new Date();
       const expiration = new Date(subscription.date_of_expiration);
-      const fiveDaysBeforeExpiration = new Date(expiration);
-      fiveDaysBeforeExpiration.setDate(fiveDaysBeforeExpiration.getDate() - 3);
+      const threeDaysBeforeExpiration = new Date(expiration);
+      threeDaysBeforeExpiration.setDate(threeDaysBeforeExpiration.getDate() - 3);
       
-      return now >= fiveDaysBeforeExpiration;
+      return now >= threeDaysBeforeExpiration;
     }
 
     return false;
@@ -877,7 +878,7 @@ export default function App({ Component, pageProps, systemBackground }) {
       setTimeout(() => {
         setShowRedirectToLogin(false);
         router.push("/");
-      }, 1000);
+      }, AUTH_REDIRECT_DELAY_MS);
       return;
     }
 
@@ -894,7 +895,7 @@ export default function App({ Component, pageProps, systemBackground }) {
         setTimeout(() => {
           setShowRedirectToLogin(false);
           router.push("/");
-        }, 1000);
+        }, AUTH_REDIRECT_DELAY_MS);
         return;
       }
 
@@ -911,7 +912,7 @@ export default function App({ Component, pageProps, systemBackground }) {
         setTimeout(() => {
           setShowRedirectToLogin(false);
           router.push("/");
-        }, 1000);
+        }, AUTH_REDIRECT_DELAY_MS);
       }
     }
   }, [isAuthenticated, subscription, isLoadingSubscription, router.pathname, publicPages, userRole, router, isSubscriptionEnabled]);
@@ -1039,7 +1040,7 @@ export default function App({ Component, pageProps, systemBackground }) {
           }}>
             <Header />
             
-            {/* Subscription Warning - Show for assistant/admin/developer, not on student_dashboard */}
+            {/* Subscription Warning - all roles except students, within 3 days of expiry */}
             {shouldShowSubscriptionWarning() && (
               <div className="subscription-warning" style={{
                 background: 'linear-gradient(135deg, #dc3545 0%, #ff6b6b 100%)',

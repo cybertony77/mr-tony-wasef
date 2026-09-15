@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
 import Image from 'next/image';
 import { TextInput, PasswordInput, Anchor, Group, Text, Modal } from '@mantine/core';
@@ -9,6 +9,21 @@ import { getDeviceIdentity, persistDeviceIdentity } from '../lib/deviceIdentity'
 import SiteSeo from '../components/SiteSeo';
 import { getPublicPageSeo } from '../lib/seo';
 import { useSystemConfig } from '../lib/api/system';
+import {
+  consumePendingStudentLogin,
+  consumePendingForgotLogin,
+  clearAllEphemeralCredentials,
+} from '../lib/ephemeralCredentials';
+
+function isSafeRedirectPath(path) {
+  if (!path || typeof path !== 'string') return false;
+  const decoded = decodeURIComponent(path.trim());
+  if (!decoded.startsWith('/')) return false;
+  if (decoded.startsWith('//')) return false;
+  if (decoded.includes('://')) return false;
+  if (/[\r\n\\]/.test(decoded)) return false;
+  return /^\/[A-Za-z0-9/_?-]*$/.test(decoded);
+}
 
 export default function Login() {
   const [assistant_id, setAssistantId] = useState("");
@@ -17,6 +32,8 @@ export default function Login() {
   const [forgotMsg, setForgotMsg] = useState("");
   const [usernameError, setUsernameError] = useState("");
   const [passwordError, setPasswordError] = useState("");
+  const [usernameShakeKey, setUsernameShakeKey] = useState(0);
+  const [passwordShakeKey, setPasswordShakeKey] = useState(0);
   const [redirectMessage, setRedirectMessage] = useState("");
   const [otpPopupOpen, setOtpPopupOpen] = useState(false);
   const [otp, setOtp] = useState(['', '', '', '', '', '', '', '']);
@@ -27,6 +44,8 @@ export default function Login() {
   const [resendCooldown, setResendCooldown] = useState(0);
   const [deviceId, setDeviceId] = useState(null);
   const [deviceFingerprint, setDeviceFingerprint] = useState(null);
+  const usernameInputRef = useRef(null);
+  const passwordInputRef = useRef(null);
   const router = useRouter();
   const { data: systemConfig } = useSystemConfig();
   const seoCopy = getPublicPageSeo('/', systemConfig?.name);
@@ -76,15 +95,23 @@ export default function Login() {
   }, [otpError]);
 
   useEffect(() => {
-    // Load ID and password from sessionStorage
-    const storedId = sessionStorage.getItem('student_id');
-    const storedPassword = sessionStorage.getItem('student_password');
-    
-    if (storedId) {
-      setAssistantId(storedId);
-    }
-    if (storedPassword) {
-      setPassword(storedPassword);
+    // Load ID/password from in-memory ephemeral store (first login after signup/reset)
+    const pendingStudent = consumePendingStudentLogin();
+    if (pendingStudent?.id) setAssistantId(pendingStudent.id);
+    if (pendingStudent?.password) setPassword(pendingStudent.password);
+
+    const pendingForgot = consumePendingForgotLogin();
+    if (pendingForgot?.username) setAssistantId(pendingForgot.username);
+    if (pendingForgot?.password) setPassword(pendingForgot.password);
+
+    // Migrate away from any leftover sessionStorage passwords
+    try {
+      sessionStorage.removeItem('student_id');
+      sessionStorage.removeItem('student_password');
+      sessionStorage.removeItem('forgot_password_username');
+      sessionStorage.removeItem('forgot_password_password');
+    } catch {
+      /* ignore */
     }
 
     // Check if user is already authenticated by making a request to the server
@@ -120,25 +147,13 @@ export default function Login() {
     // Check authentication status
     checkAuthStatus();
 
-    // Load username/id and password from sessionStorage (from forgot password page)
-    if (typeof window !== 'undefined') {
-      const savedUsername = sessionStorage.getItem('forgot_password_username');
-      const savedPassword = sessionStorage.getItem('forgot_password_password');
-      
-      if (savedUsername) {
-        setAssistantId(savedUsername);
-      }
-      if (savedPassword) {
-        setPassword(savedPassword);
-      }
-    }
-
     // Check if user was redirected from a protected page
     const cookies = document.cookie.split(';');
     const redirectCookie = cookies.find(cookie => cookie.trim().startsWith('redirectAfterLogin='));
-    const redirectPath = redirectCookie ? redirectCookie.split('=')[1] : null;
+    const redirectPathRaw = redirectCookie ? redirectCookie.split('=').slice(1).join('=') : null;
+    const redirectPath = redirectPathRaw ? decodeURIComponent(redirectPathRaw) : null;
     
-    if (redirectPath && redirectPath !== "/" && redirectPath !== "/dashboard") {
+    if (redirectPath && isSafeRedirectPath(redirectPath) && redirectPath !== "/" && redirectPath !== "/dashboard") {
       setRedirectMessage(`You must log in first to access: ${redirectPath}`);
     }
   }, []);
@@ -487,6 +502,65 @@ export default function Login() {
     }
   };
 
+  const focusUsernameInput = () => {
+    const el = usernameInputRef.current;
+    if (!el) return;
+    if (typeof el.focus === 'function') el.focus();
+    else if (el.querySelector) el.querySelector('input')?.focus();
+  };
+
+  const focusPasswordInput = () => {
+    const el = passwordInputRef.current;
+    if (!el) return;
+    if (typeof el.focus === 'function') el.focus();
+    else if (el.querySelector) el.querySelector('input')?.focus();
+  };
+
+  const showUsernameRequired = () => {
+    setUsernameError('This is required');
+    setUsernameShakeKey((k) => k + 1);
+  };
+
+  const showPasswordRequired = () => {
+    setPasswordError('This is required');
+    setPasswordShakeKey((k) => k + 1);
+  };
+
+  const handleUsernameKeyDown = (e) => {
+    if (e.key === ' ') {
+      e.preventDefault();
+      return;
+    }
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    if (!password) {
+      focusPasswordInput();
+      return;
+    }
+    if (!assistant_id.trim()) {
+      showUsernameRequired();
+      focusUsernameInput();
+      return;
+    }
+    handleLogin(e);
+  };
+
+  const handlePasswordKeyDown = (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    if (!assistant_id.trim()) {
+      showUsernameRequired();
+      focusUsernameInput();
+      return;
+    }
+    if (!password) {
+      showPasswordRequired();
+      focusPasswordInput();
+      return;
+    }
+    handleLogin(e);
+  };
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setMessage("");
@@ -530,18 +604,23 @@ export default function Login() {
             persistDeviceIdentity(loginDeviceId).catch(() => {});
           }
           
-          // Remove all sessionStorage items after successful login
+          // Clear any leftover credential storage after successful login
+          clearAllEphemeralCredentials();
           if (typeof window !== 'undefined') {
-            sessionStorage.removeItem('student_id');
-            sessionStorage.removeItem('student_password');
-            sessionStorage.removeItem('forgot_password_username');
-            sessionStorage.removeItem('forgot_password_password');
+            try {
+              sessionStorage.removeItem('student_id');
+              sessionStorage.removeItem('student_password');
+              sessionStorage.removeItem('forgot_password_username');
+              sessionStorage.removeItem('forgot_password_password');
+            } catch {
+              /* ignore */
+            }
           }
           
           // Check if there's a redirect path saved in cookies
           const cookies = document.cookie.split(';');
           const redirectCookie = cookies.find(cookie => cookie.trim().startsWith('redirectAfterLogin='));
-          const redirectPath = redirectCookie ? redirectCookie.split('=')[1] : null;
+          const redirectPath = redirectCookie ? redirectCookie.split('=').slice(1).join('=') : null;
           console.log("🔍 Redirect path found:", redirectPath);
           
           // Determine redirect destination based on role
@@ -550,14 +629,18 @@ export default function Login() {
           
           // Small delay to ensure token is stored and auth state updates
           setTimeout(() => {
-            if (redirectPath && redirectPath !== "/" && redirectPath !== "/dashboard" && redirectPath !== "/student_dashboard") {
+            if (
+              redirectPath &&
+              isSafeRedirectPath(redirectPath) &&
+              redirectPath !== "/" &&
+              redirectPath !== "/dashboard" &&
+              redirectPath !== "/student_dashboard"
+            ) {
               // Clear the redirect cookie and redirect to intended page
               document.cookie = "redirectAfterLogin=; path=/; max-age=0";
               console.log("🔄 Redirecting to:", redirectPath);
-              // Use window.location for more reliable redirect
               window.location.href = redirectPath;
             } else {
-              // Default redirect based on role
               console.log(`🔄 Redirecting to ${defaultDashboard} for role: ${userRole}`);
               window.location.href = defaultDashboard;
             }
@@ -1110,56 +1193,40 @@ export default function Login() {
           <div className="logo-section">
             <Image src="/logo.png" alt={`${systemConfig?.name || 'System'} logo`} width={120} height={120} className="logo-icon" style={{ borderRadius: '50%' }} priority />
             <h1 className="title">Application Login</h1>
-            <p className="subtitle">Welcome back! Please sign in to continue</p>
+            <p className="subtitle">Welcome back! Please log in to continue</p>
           </div>
 
         <form onSubmit={handleLogin} autoComplete="off">
-            <div className="form-group" style={{ marginBottom: usernameError ? 4 : 38 }}>
+            <div className="form-group" style={{ marginBottom: 38 }}>
               <FloatingLabelInput
                 label="Username, ID"
                 value={assistant_id}
+                inputRef={usernameInputRef}
+                shakeKey={usernameShakeKey}
                 onChange={e => {
                   // Remove spaces from username input
                   const value = e.target.value.replace(/\s/g, '');
                   setAssistantId(value);
-                  
-                  // Remove from sessionStorage if input is empty
-                  if (typeof window !== 'undefined') {
-                    if (value === '') {
-                      sessionStorage.removeItem('forgot_password_username');
-                    } else {
-                      sessionStorage.setItem('forgot_password_username', value);
-                    }
-                  }
+                  if (usernameError) setUsernameError('');
                 }}
-                onKeyDown={(e) => {
-                  // Prevent space key from being entered
-                  if (e.key === ' ') {
-                    e.preventDefault();
-                  }
-                }}
+                onKeyDown={handleUsernameKeyDown}
                 error={usernameError || undefined}
                 autoComplete="username, id"
                 type="text"
               />
             </div>
-            <div className="form-group" style={{ marginBottom: passwordError ? 4 : 24 }}>
+            <div className="form-group" style={{ marginBottom: 24 }}>
               <FloatingLabelInput
                 label="Password"
                 value={password}
+                inputRef={passwordInputRef}
+                shakeKey={passwordShakeKey}
                 onChange={e => {
                   const value = e.target.value;
                   setPassword(value);
-                  
-                  // Remove from sessionStorage if password field is cleared
-                  if (typeof window !== 'undefined') {
-                    if (value === '') {
-                      sessionStorage.removeItem('forgot_password_password');
-                    } else {
-                      sessionStorage.setItem('forgot_password_password', value);
-                    }
-                  }
+                  if (passwordError) setPasswordError('');
                 }}
+                onKeyDown={handlePasswordKeyDown}
                 error={passwordError || undefined}
                 autoComplete="current-password"
                 type="password"

@@ -22,6 +22,14 @@
     color: light-dark(var(--mantine-color-black), var(--mantine-color-white));
     margin-top: 4px;
   }
+
+  &[data-error] {
+    color: #dc3545 !important;
+  }
+
+  &[data-floating][data-error] {
+    color: #dc3545 !important;
+  }
 }
 
 .required {
@@ -44,4 +52,27 @@
       color: var(--mantine-color-placeholder);
     }
   }
-} 
+}
+
+@keyframes fieldShake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-6px);
+  }
+  40% {
+    transform: translateX(6px);
+  }
+  60% {
+    transform: translateX(-4px);
+  }
+  80% {
+    transform: translateX(4px);
+  }
+}
+
+.shake {
+  animation: fieldShake 0.5s ease-in-out;
+}

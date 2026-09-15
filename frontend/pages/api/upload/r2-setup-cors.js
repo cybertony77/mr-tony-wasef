@@ -4,6 +4,8 @@ import {
   buildR2CorsAllowedOrigins,
   getR2Config,
 } from '../../../lib/r2Server';
+import { authMiddleware, isAuthError } from '../../../lib/authMiddleware';
+import {requireAdmin, isForbiddenError, forbiddenJson} from '../../../lib/requireStaff';
 
 /**
  * Manual CORS apply (same rules as auto-apply in r2-signed-url).
@@ -12,11 +14,13 @@ import {
  * Optional env: R2_CORS_ORIGINS = comma-separated origins
  */
 export default async function handler(req, res) {
-  const origin = req.headers.origin || '*';
-  res.setHeader('Access-Control-Allow-Origin', origin === '*' ? '*' : origin);
+  const origin = req.headers.origin;
+  if (origin && /^https?:\/\//i.test(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
 
   if (req.method === 'OPTIONS') {
     return res.status(204).end();
@@ -27,6 +31,9 @@ export default async function handler(req, res) {
   }
 
   try {
+    const user = await authMiddleware(req);
+    await requireAdmin(user);
+
     const cfg = getR2Config();
     assertR2Config(cfg);
 
@@ -68,6 +75,12 @@ export default async function handler(req, res) {
       allowedOrigins,
     });
   } catch (error) {
+    if (isAuthError(error)) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    if (isForbiddenError(error)) {
+      return res.status(403).json(forbiddenJson(error));
+    }
     console.error('R2 CORS setup error:', error);
     res.status(500).json({ error: 'Failed to configure CORS', details: error.message });
   }

@@ -3,6 +3,10 @@ import Image from 'next/image';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
+import {
+  isSameOriginPdfDeliveryUrl,
+  resolvePdfViewerUrl,
+} from '../lib/pdfViewerUrl';
 
 if (typeof window !== 'undefined') {
   // Served from frontend/pdf.worker.min.mjs via /api/pdf-worker (not /public)
@@ -34,27 +38,27 @@ export default function PdfViewerModal({ isOpen, onClose, fileUrl, fileName }) {
   const [pageInputDraft, setPageInputDraft] = useState('');
   const [documentRetryKey, setDocumentRetryKey] = useState(0);
 
-  const normalizedFileUrl = typeof fileUrl === 'string' && fileUrl.trim() ? fileUrl.trim() : null;
+  const normalizedFileUrl = useMemo(
+    () => resolvePdfViewerUrl(fileUrl),
+    [fileUrl]
+  );
 
-  const isApiFilesUrl = useMemo(() => {
+  const isSameOriginPdf = useMemo(() => {
     if (!normalizedFileUrl) return false;
-    return (
-      normalizedFileUrl.startsWith('/api/files/') ||
-      normalizedFileUrl.includes('/api/files/')
-    );
+    return isSameOriginPdfDeliveryUrl(normalizedFileUrl);
   }, [normalizedFileUrl]);
 
   const documentFile = useMemo(() => {
     if (!normalizedFileUrl) return null;
-    // Same-origin R2 proxy needs cookies for authMiddleware + Range progressive load
-    if (isApiFilesUrl) {
+    // R2 (/api/files) and Cloudinary (/api/pdf-proxy) — auth + Range via same origin
+    if (isSameOriginPdf) {
       return { url: normalizedFileUrl, withCredentials: true };
     }
     return normalizedFileUrl;
-  }, [normalizedFileUrl, isApiFilesUrl]);
+  }, [normalizedFileUrl, isSameOriginPdf]);
 
   const documentOptions = useMemo(() => {
-    if (!isApiFilesUrl) {
+    if (!isSameOriginPdf) {
       return {
         rangeChunkSize: 256 * 1024,
         disableAutoFetch: false,
@@ -62,7 +66,7 @@ export default function PdfViewerModal({ isOpen, onClose, fileUrl, fileName }) {
       };
     }
     return PDF_DOCUMENT_OPTIONS;
-  }, [isApiFilesUrl]);
+  }, [isSameOriginPdf]);
 
   const bumpDocumentRetry = useCallback(() => {
     setDocumentRetryKey((k) => k + 1);

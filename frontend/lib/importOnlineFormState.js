@@ -1,5 +1,9 @@
 import { newQuestionClientKey } from './onlineItemQuestionFormHelpers';
 import { createEmptyMcqQuestion, normalizeLoadedQuestion } from './onlineQuestionTypes';
+import {
+  createEmptyExplanationVideoForm,
+  explanationVideoFromDb,
+} from './explanationVideo';
 
 function mapHomeworkQuestion(q) {
   return normalizeLoadedQuestion({
@@ -84,6 +88,13 @@ export function buildQuizImportFormState(quiz) {
         quiz.shuffle_questions_and_answers === true || quiz.shuffle_questions_and_answers === 'true',
       show_details_after_submitting:
         quiz.show_details_after_submitting === true || quiz.show_details_after_submitting === 'true',
+      show_overall_questions_explanation_video:
+        quiz.show_overall_questions_explanation_video === true ||
+        quiz.show_overall_questions_explanation_video === 'true' ||
+        Boolean(quiz.overall_questions_explanation_video?.video_id),
+      overall_questions_explanation_video: explanationVideoFromDb(
+        quiz.overall_questions_explanation_video
+      ),
       pdf_file_name: quiz.pdf_file_name || '',
       pdf_url: quiz.pdf_url || '',
       allow_downloading: quiz.allow_downloading !== false && quiz.allow_downloading !== 'false',
@@ -120,6 +131,13 @@ export function buildMockExamImportFormState(me) {
         me.shuffle_questions_and_answers === true || me.shuffle_questions_and_answers === 'true',
       show_details_after_submitting:
         me.show_details_after_submitting === true || me.show_details_after_submitting === 'true',
+      show_overall_questions_explanation_video:
+        me.show_overall_questions_explanation_video === true ||
+        me.show_overall_questions_explanation_video === 'true' ||
+        Boolean(me.overall_questions_explanation_video?.video_id),
+      overall_questions_explanation_video: explanationVideoFromDb(
+        me.overall_questions_explanation_video
+      ),
       pdf_file_name: me.pdf_file_name || '',
       pdf_url: me.pdf_url || '',
       allow_downloading: me.allow_downloading !== false && me.allow_downloading !== 'false',

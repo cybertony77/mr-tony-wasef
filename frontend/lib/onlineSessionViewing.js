@@ -118,9 +118,15 @@ export function normalizeViewingSettingsForSave(payment_state, viewing_limit_typ
  * Remaining free views against the *current* session limit (not a stale stored remaining).
  * Admin increasing the limit unlocks leftover views for students who already used some.
  */
-export function getFreeViewsRemaining(session, studentEntry) {
+export function getFreeViewsRemaining(session, studentEntry, videoPartKey = null) {
   const limit = Number(session?.viewing_limit_value);
   if (Number.isNaN(limit) || limit <= 0) return 0;
+
+  if (videoPartKey && studentEntry?.part_views && typeof studentEntry.part_views === 'object') {
+    const used = Number(studentEntry.part_views[videoPartKey]) || 0;
+    return Math.max(0, limit - used);
+  }
+
   const used = Number(studentEntry?.views_used ?? 0);
   if (Number.isNaN(used) || used < 0) return limit;
   return Math.max(0, limit - used);
@@ -139,7 +145,7 @@ export function getFreeViewsRemaining(session, studentEntry) {
  *
  * When invalid/expired, session should fall back to paid (require VVC).
  */
-export function isFreeViewingAccessValid(session, studentEntry, lessonData = null) {
+export function isFreeViewingAccessValid(session, studentEntry, lessonData = null, videoPartKey = null) {
   const type = session?.viewing_limit_type;
   const limit = Number(session?.viewing_limit_value);
   if (!VIEWING_LIMIT_TYPES.includes(type) || Number.isNaN(limit) || limit < 0) {
@@ -149,9 +155,11 @@ export function isFreeViewingAccessValid(session, studentEntry, lessonData = nul
 
   if (type === 'number_of_views') {
     if (limit <= 0) return false;
-    // Not opened yet — still free to start
     if (!studentEntry || !studentEntry.first_opened_at) {
       return true;
+    }
+    if (videoPartKey) {
+      return getFreeViewsRemaining(session, studentEntry, videoPartKey) > 0;
     }
     return getFreeViewsRemaining(session, studentEntry) > 0;
   }

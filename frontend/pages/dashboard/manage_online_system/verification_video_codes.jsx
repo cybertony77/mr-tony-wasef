@@ -211,25 +211,47 @@ export default function VerificationVideoCodes() {
     },
   });
 
-  // Update Payment State mutation
+  // Update Payment State mutation — optimistic UI (no wait for full list refetch)
   const updatePaymentStateMutation = useMutation({
     mutationFn: async ({ id, payment_state }) => {
       const response = await apiClient.put(`/api/vvc?id=${id}`, { payment_state });
       return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries(['vvc']);
-      refetch();
+    onMutate: async ({ id, payment_state }) => {
+      await queryClient.cancelQueries({ queryKey: ['vvc'] });
+      const previousQueries = queryClient.getQueriesData({ queryKey: ['vvc'] });
+      queryClient.setQueriesData({ queryKey: ['vvc'] }, (old) => {
+        if (!old || !Array.isArray(old.data)) return old;
+        return {
+          ...old,
+          data: old.data.map((row) =>
+            String(row._id) === String(id) ? { ...row, payment_state } : row
+          ),
+        };
+      });
+      return { previousQueries };
     },
-    onError: (error) => {
+    onError: (error, _vars, context) => {
+      context?.previousQueries?.forEach(([key, data]) => {
+        queryClient.setQueryData(key, data);
+      });
       setErrorMessage(error.response?.data?.error || error.message || 'Error updating payment state');
       setSuccessMessage('');
       setTimeout(() => setErrorMessage(''), 6000);
     },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['vvc'] });
+    },
   });
+
+  const paymentUpdatingId =
+    updatePaymentStateMutation.isPending || updatePaymentStateMutation.isLoading
+      ? updatePaymentStateMutation.variables?.id
+      : null;
 
   // Handle payment state toggle
   const handleTogglePaymentState = (vvc) => {
+    if (paymentUpdatingId && String(paymentUpdatingId) === String(vvc._id)) return;
     const newPaymentState = vvc.payment_state === 'Not Paid' ? 'Paid' : 'Not Paid';
     updatePaymentStateMutation.mutate({ id: vvc._id, payment_state: newPaymentState });
   };
@@ -797,29 +819,35 @@ export default function VerificationVideoCodes() {
                         <button
                           className="payment-state-btn"
                           onClick={() => handleTogglePaymentState(vvc)}
-                          disabled={updatePaymentStateMutation.isLoading}
+                          disabled={paymentUpdatingId != null && String(paymentUpdatingId) === String(vvc._id)}
                           style={{
                             padding: '6px 12px',
                             backgroundColor: (vvc.payment_state || 'Not Paid') === 'Paid' ? '#28a745' : '#dc3545',
                             color: 'white',
                             border: 'none',
                             borderRadius: '8px',
-                            cursor: updatePaymentStateMutation.isLoading ? 'not-allowed' : 'pointer',
+                            cursor:
+                              paymentUpdatingId != null && String(paymentUpdatingId) === String(vvc._id)
+                                ? 'not-allowed'
+                                : 'pointer',
                             fontSize: '0.9rem',
                             fontWeight: '600',
-                            transition: 'all 0.2s ease',
-                            opacity: updatePaymentStateMutation.isLoading ? 0.6 : 1,
+                            transition: 'all 0.15s ease',
+                            opacity:
+                              paymentUpdatingId != null && String(paymentUpdatingId) === String(vvc._id)
+                                ? 0.75
+                                : 1,
                             whiteSpace: 'nowrap',
                             minWidth: '90px'
                           }}
                           onMouseEnter={(e) => {
-                            if (!updatePaymentStateMutation.isLoading) {
+                            if (!(paymentUpdatingId != null && String(paymentUpdatingId) === String(vvc._id))) {
                               e.target.style.transform = 'translateY(-1px)';
                               e.target.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.2)';
                             }
                           }}
                           onMouseLeave={(e) => {
-                            if (!updatePaymentStateMutation.isLoading) {
+                            if (!(paymentUpdatingId != null && String(paymentUpdatingId) === String(vvc._id))) {
                               e.target.style.transform = 'translateY(0)';
                               e.target.style.boxShadow = 'none';
                             }

@@ -2,6 +2,7 @@ import { MongoClient, ObjectId } from 'mongodb';
 import fs from 'fs';
 import path from 'path';
 import { authMiddleware } from '../../../../lib/authMiddleware';
+import {requireStaff, isForbiddenError, forbiddenJson} from '../../../../lib/requireStaff';
 import { getStudentLesson, mergeStudentLesson } from '../../../../lib/studentLessons';
 import { reverseItemScoring, parsePercentage } from '../../../../lib/reverseItemScoring';
 
@@ -54,7 +55,8 @@ export default async function handler(req, res) {
     const db = client.db(DB_NAME);
     
     // Verify authentication
-    await authMiddleware(req);
+    const user = await authMiddleware(req);
+    await requireStaff(user);
 
     // Get student data
     const student = await db.collection('students').findOne({ id: student_id });
@@ -159,6 +161,12 @@ export default async function handler(req, res) {
     res.json({ success: true, message: 'Homework reset successfully' });
   } catch (error) {
     console.error('❌ Error resetting homework:', error);
+    if (error.message?.includes('Unauthorized') || error.message?.includes('Invalid token') || error.message === 'No token provided') {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    if (isForbiddenError(error) || error.message === 'Forbidden' || String(error.message||'').includes('Forbidden')) {
+      return res.status(403).json(forbiddenJson(error));
+    }
     res.status(500).json({ 
       error: 'Internal server error', 
       details: error.message 

@@ -1,6 +1,15 @@
 import { useState } from 'react';
 
-export default function RoleSelect({ selectedRole, onRoleChange, required = false, isOpen, onToggle, onClose }) {
+export default function RoleSelect({
+  selectedRole,
+  onRoleChange,
+  required = false,
+  isOpen,
+  onToggle,
+  onClose,
+  /** Optional override — default: assistant, admin. Pass e.g. ["admin","assistant","student"] for app videos. */
+  roles: rolesProp,
+}) {
   // Handle legacy props (value, onChange) for backward compatibility
   const [internalIsOpen, setInternalIsOpen] = useState(false);
   const actualIsOpen = isOpen !== undefined ? isOpen : internalIsOpen;
@@ -12,7 +21,9 @@ export default function RoleSelect({ selectedRole, onRoleChange, required = fals
     actualOnClose();
   };
 
-  const roles = ["assistant", "admin"];
+  const roles = Array.isArray(rolesProp) && rolesProp.length
+    ? rolesProp.map((r) => String(r).trim().toLowerCase()).filter(Boolean)
+    : ['assistant', 'admin'];
 
   return (
     <div style={{ position: 'relative', width: '100%' }}>

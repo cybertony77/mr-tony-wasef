@@ -57,7 +57,7 @@ export default async function handler(req, res) {
       let studentMainCenter = null;
       if (user.role === 'student') {
         // JWT contains assistant_id, use that to find student
-        const studentId = user.assistant_id || user.id;
+        const studentId = Number(user.assistant_id || user.id);
         console.log('🔍 Student API - User from JWT:', { role: user.role, assistant_id: user.assistant_id, id: user.id, studentId });
         if (studentId) {
           const student = await db.collection('students').findOne({ id: studentId });

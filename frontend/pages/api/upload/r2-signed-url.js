@@ -1,27 +1,21 @@
 import path from 'path';
-import { PutObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import {
-  assertR2Config,
-  createR2S3ClientForPutPresign,
-  ensureR2CorsForBrowserUploads,
-  getR2Config,
-} from '../../../lib/r2Server';
+import { authMiddleware, isAuthError } from '../../../lib/authMiddleware';
+import { assertR2Config, getR2Config } from '../../../lib/r2Server';
 
-/** 6h TTL so slow / multi-GB uploads do not expire mid-transfer */
-const PRESIGN_PUT_EXPIRES_SEC = 6 * 60 * 60; // 6 hours
+/**
+ * Prepare an R2 object key for same-origin proxy upload.
+ * Does NOT return a presigned URL — client must POST the file to
+ * /api/upload/r2-proxy-upload with the returned key.
+ */
+const ALLOWED_PREFIXES = new Set([
+  'videos',
+  'pdfs/material',
+  'pdfs/HW-PDFs',
+  'pdfs/Quizs-PDFs',
+  'pdfs/MockExams-PDFs',
+]);
 
 export default async function handler(req, res) {
-  const origin = req.headers.origin;
-  if (origin) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-  } else {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  }
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-
   if (req.method === 'OPTIONS') {
     return res.status(204).end();
   }
@@ -31,24 +25,20 @@ export default async function handler(req, res) {
   }
 
   try {
+    const user = await authMiddleware(req);
+    if (!['admin', 'developer', 'assistant'].includes(user.role)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
     const cfg = getR2Config();
     assertR2Config(cfg);
 
-    const corsSetup = await ensureR2CorsForBrowserUploads(cfg, req.headers.origin || '');
-
-    const { fileName, contentType, prefix: prefixRaw } = req.body;
+    const { fileName, contentType, prefix: prefixRaw } = req.body || {};
 
     if (!fileName) {
       return res.status(400).json({ error: 'fileName is required' });
     }
 
-    const ALLOWED_PREFIXES = new Set([
-      'videos',
-      'pdfs/material',
-      'pdfs/HW-PDFs',
-      'pdfs/Quizs-PDFs',
-      'pdfs/MockExams-PDFs',
-    ]);
     const prefix =
       typeof prefixRaw === 'string' && ALLOWED_PREFIXES.has(prefixRaw.trim())
         ? prefixRaw.trim()
@@ -65,30 +55,20 @@ export default async function handler(req, res) {
         ? contentType.trim()
         : 'application/octet-stream';
 
-    const s3Client = createR2S3ClientForPutPresign(cfg);
-
-    const command = new PutObjectCommand({
-      Bucket: cfg.bucketName,
-      Key: key,
-      ContentType: contentTypeHeader,
-    });
-
-    const signedUrl = await getSignedUrl(s3Client, command, {
-      expiresIn: PRESIGN_PUT_EXPIRES_SEC,
-    });
-
+    // Intentionally no signedUrl / presigned URL — upload via same-origin proxy only
     res.json({
-      signedUrl,
       key,
       contentType: contentTypeHeader,
-      expiresIn: PRESIGN_PUT_EXPIRES_SEC,
-      corsSetup,
+      uploadPath: '/api/upload/r2-proxy-upload',
     });
   } catch (error) {
-    console.error('R2 signed URL error:', error);
+    if (isAuthError(error)) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    console.error('R2 upload prepare error:', error);
     const status = error.statusCode || 500;
     res.status(status).json({
-      error: status === 400 ? error.message : 'Failed to generate signed URL',
+      error: status === 400 ? error.message : 'Failed to prepare upload',
       details: error.message,
     });
   }

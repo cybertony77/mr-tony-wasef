@@ -88,9 +88,9 @@ export default async function handler(req, res) {
       process.env.SYSTEM_DESMOS_INTEGRATIONS === 'true' ||
       envConfig.SYSTEM_DESMOS_INTEGRATION === 'true' ||
       process.env.SYSTEM_DESMOS_INTEGRATION === 'true';
-    const desmosApiKey = desmosIntegrations
-      ? (envConfig.DESMOS_API_KEY || process.env.DESMOS_API_KEY || '').trim()
-      : '';
+    const desmosApiKeyPresent = Boolean(
+      (envConfig.DESMOS_API_KEY || process.env.DESMOS_API_KEY || '').trim()
+    );
     const mathReferenceSheet =
       envConfig.SYSTEM_MATH_REFERENCE_SHEET === 'true' ||
       process.env.SYSTEM_MATH_REFERENCE_SHEET === 'true';
@@ -142,7 +142,8 @@ export default async function handler(req, res) {
       google_meet_integrations: googleMeetIntegrations,
       google_join_meeting: googleJoinMeeting,
       desmos_integrations: desmosIntegrations,
-      desmos_api_key: desmosApiKey,
+      // Never expose DESMOS_API_KEY — client loads calculator via /api/desmos/calculator.js
+      desmos_configured: desmosIntegrations && desmosApiKeyPresent,
       math_reference_sheet: mathReferenceSheet,
       payment_system: paymentSystem,
       subscription: subscription,

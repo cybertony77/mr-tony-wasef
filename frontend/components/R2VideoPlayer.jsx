@@ -1,10 +1,11 @@
 import { useRef, useEffect, useState, useMemo, useCallback } from "react";
-import { useVideoSeekGestures, VideoPremiumLoader, VideoPlayerChromeStyles } from "./videoSeekGestures";
+import { useVideoSeekGestures, VideoPlayerChromeStyles } from "./videoSeekGestures";
 
-function buildVideoApiPath(r2Key) {
+function buildFilesProxyPath(r2Key) {
   if (!r2Key) return null;
   const segments = String(r2Key).split("/").filter(Boolean);
-  return segments.map((s) => encodeURIComponent(s)).join("/");
+  if (!segments.length) return null;
+  return `/api/files/${segments.map((s) => encodeURIComponent(s)).join("/")}`;
 }
 
 export default function R2VideoPlayer({
@@ -19,100 +20,27 @@ export default function R2VideoPlayer({
   const watermarkRef = useRef(null);
   const videoRef = useRef(null);
   const [error, setError] = useState(null);
-  const [isLoadingUrl, setIsLoadingUrl] = useState(false);
-  const [presignedUrl, setPresignedUrl] = useState(null);
   const [watermarkPos, setWatermarkPos] = useState({ x: 0, y: 0 });
-  const refreshTimerRef = useRef(null);
-  const currentUrlRef = useRef(null);
   const hasMarkedComplete = useRef(false);
   const hasMilestoneRef = useRef(false);
-  const urlErrorRetryRef = useRef(0);
+
   const resolvedWatermarkText = useMemo(() => {
     const raw = typeof watermarkText === "string" ? watermarkText.trim() : "";
     return raw || "Protected Video";
   }, [watermarkText]);
-  const videoApiKey = useMemo(() => {
-    const path = buildVideoApiPath(r2Key);
-    return path ? decodeURIComponent(path) : null;
-  }, [r2Key]);
+
+  // Same-origin authenticated proxy — cookies sent with <video src>; no presigned URL
+  const proxyUrl = useMemo(() => buildFilesProxyPath(r2Key), [r2Key]);
 
   const { containerProps: seekContainerProps, playerChrome, videoProps } = useVideoSeekGestures(videoRef, {
-    enabled: Boolean(presignedUrl) && !error,
-    attachKey: presignedUrl,
+    enabled: Boolean(proxyUrl) && !error,
+    attachKey: proxyUrl,
     containerRef: playerContainerRef,
   });
 
-  const clearRefreshTimer = useCallback(() => {
-    if (refreshTimerRef.current) {
-      clearTimeout(refreshTimerRef.current);
-      refreshTimerRef.current = null;
-    }
-  }, []);
-
-  const applySmartRefresh = useCallback((newUrl) => {
-    const video = videoRef.current;
-    if (!video) return;
-    const currentTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
-    const shouldPlay = !video.paused && !video.ended;
-
-    video.src = newUrl;
-    if (currentTime > 0) {
-      try {
-        video.currentTime = currentTime;
-      } catch {
-        // Some browsers require metadata first; user can continue manually.
-      }
-    }
-    if (shouldPlay) {
-      video.play().catch(() => {
-        // Ignore autoplay restrictions after source swap.
-      });
-    }
-  }, []);
-
-  const refreshPresignedUrl = useCallback(async (preservePlayback) => {
-    if (!videoApiKey) return;
-    setIsLoadingUrl(true);
-    setError(null);
-
-    try {
-      const response = await fetch(`/api/upload/r2-video-url?key=${encodeURIComponent(videoApiKey)}`);
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload?.error || "Failed to generate video URL");
-      }
-
-      const newUrl = payload?.signedUrl;
-      const expiresIn = Number(payload?.expiresIn || 0);
-      if (!newUrl) {
-        throw new Error("Signed URL missing in response");
-      }
-
-      if (preservePlayback && currentUrlRef.current) {
-        applySmartRefresh(newUrl);
-      }
-      currentUrlRef.current = newUrl;
-      setPresignedUrl(newUrl);
-
-      clearRefreshTimer();
-      if (expiresIn > 0) {
-        // Renew well before expiry (at 80% of TTL, min 1 min early, max 12h early)
-        const skewSec = Math.min(12 * 60 * 60, Math.max(60, Math.floor(expiresIn * 0.2)));
-        const refreshAfterMs = Math.max(60 * 1000, (expiresIn - skewSec) * 1000);
-        refreshTimerRef.current = setTimeout(() => {
-          refreshPresignedUrl(true);
-        }, refreshAfterMs);
-      }
-    } catch (err) {
-      setError(err?.message || "Failed to load video. Please try again.");
-    } finally {
-      setIsLoadingUrl(false);
-    }
-  }, [videoApiKey, applySmartRefresh, clearRefreshTimer]);
-
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !presignedUrl) return;
+    if (!video || !proxyUrl) return;
 
     const handleTimeUpdate = () => {
       if (!video.duration) return;
@@ -136,63 +64,35 @@ export default function R2VideoPlayer({
     return () => {
       video.removeEventListener("timeupdate", handleTimeUpdate);
     };
-  }, [presignedUrl, videoId, onComplete, onMilestonePercent]);
+  }, [proxyUrl, videoId, onComplete, onMilestonePercent]);
 
   useEffect(() => {
     hasMarkedComplete.current = false;
     hasMilestoneRef.current = false;
-    urlErrorRetryRef.current = 0;
     setError(null);
-    currentUrlRef.current = null;
-    setPresignedUrl(null);
-    clearRefreshTimer();
-    if (videoApiKey) {
-      refreshPresignedUrl(false);
-    }
-    return () => {
-      clearRefreshTimer();
-    };
-  }, [r2Key, videoApiKey, refreshPresignedUrl, clearRefreshTimer]);
-
-  useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === 'visible' && videoApiKey && currentUrlRef.current) {
-        refreshPresignedUrl(true);
-      }
-    };
-    document.addEventListener('visibilitychange', onVisible);
-    window.addEventListener('focus', onVisible);
-    return () => {
-      document.removeEventListener('visibilitychange', onVisible);
-      window.removeEventListener('focus', onVisible);
-    };
-  }, [videoApiKey, refreshPresignedUrl]);
+  }, [r2Key, proxyUrl]);
 
   const handleRetry = useCallback(() => {
-    urlErrorRetryRef.current = 0;
-    refreshPresignedUrl(true);
-  }, [refreshPresignedUrl]);
+    setError(null);
+    const video = videoRef.current;
+    if (video && proxyUrl) {
+      video.load();
+    }
+  }, [proxyUrl]);
 
   const handleVideoError = useCallback(() => {
-    // Signed URL expired / network blip — refresh once and preserve playback.
-    if (urlErrorRetryRef.current >= 1) {
-      setError("Failed to load video. Please try again.");
-      return;
-    }
-    urlErrorRetryRef.current += 1;
-    refreshPresignedUrl(true);
-  }, [refreshPresignedUrl]);
+    setError("Failed to load video. Please try again.");
+  }, []);
 
   useEffect(() => {
     const containerEl = playerContainerRef.current;
     const markEl = watermarkRef.current;
-    if (!containerEl || !markEl) return;
+    if (!containerEl || !markEl || !proxyUrl) return;
 
     let rafId = null;
     let lastTs = 0;
-    // Slower watermark movement.
-    let vx = 30; // px/s
-    let vy = 20; // px/s
+    let vx = 30;
+    let vy = 20;
     let x = 20;
     let y = 16;
 
@@ -246,9 +146,9 @@ export default function R2VideoPlayer({
       if (rafId) cancelAnimationFrame(rafId);
       window.removeEventListener("resize", onResize);
     };
-  }, [resolvedWatermarkText, presignedUrl]);
+  }, [resolvedWatermarkText, proxyUrl]);
 
-  if (!videoApiKey) {
+  if (!proxyUrl) {
     return (
       <div style={{
         width: '100%',
@@ -261,25 +161,6 @@ export default function R2VideoPlayer({
         fontSize: '1rem',
       }}>
         No video available
-      </div>
-    );
-  }
-
-  if (isLoadingUrl && !presignedUrl) {
-    return (
-      <div
-        className="video-player-root"
-        style={{
-          width: "100%",
-          aspectRatio: "16 / 9",
-          position: "relative",
-          overflow: "hidden",
-          backgroundColor: "#000",
-          borderRadius: "10px",
-        }}
-      >
-        <VideoPlayerChromeStyles />
-        <VideoPremiumLoader active label="Loading video" />
       </div>
     );
   }
@@ -333,9 +214,10 @@ export default function R2VideoPlayer({
         outline: "none",
       }}
     >
+      <VideoPlayerChromeStyles />
       <video
         ref={videoRef}
-        src={presignedUrl || undefined}
+        src={proxyUrl}
         {...videoProps}
         onContextMenu={(e) => e.preventDefault()}
         onError={handleVideoError}

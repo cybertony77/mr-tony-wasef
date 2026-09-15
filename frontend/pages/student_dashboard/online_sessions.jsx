@@ -25,11 +25,23 @@ import { getStudentLesson } from '../../lib/studentLessons';
 import { isDeadlinePassedEgypt } from '../../lib/deadlineTimeEgypt';
 import { isCodeNumberOfDaysValid } from '../../lib/codeNumberOfDays';
 import CodePopupMessage from '../../components/CodePopupMessage';
+import VideoUnlockPaymentChoiceModal from '../../components/VideoUnlockPaymentChoiceModal';
+import UnlockSuccessToast from '../../components/UnlockSuccessToast';
 import {
   CODE_ERROR,
   getVerificationCodeMessage,
   resolveVerificationCodeError,
 } from '../../lib/verificationCodeMessages';
+import {
+  getVideoPartViewsRemaining,
+  getVideoAccessBracketLabel,
+} from '../../lib/videoViewsDisplay';
+import {
+  applySessionCreditUnlockToCache,
+  applyStudentArrayEntryToCache,
+  cancelStudentDetailFetches,
+  invalidateStudentDetailCaches,
+} from '../../lib/sessionCreditUnlockCache';
 
 function unlockInfoFromVvcResponse(data) {
   if (!data) return null;
@@ -100,6 +112,8 @@ export default function OnlineSessions() {
   const { data: systemConfig } = useSystemConfig();
   const isNational = useNationalSystem();
   const isScoringEnabled = systemConfig?.scoring_system === true || systemConfig?.scoring_system === 'true';
+  const isPaymentSystemEnabled =
+    systemConfig?.payment_system === true || systemConfig?.payment_system === 'true';
   const isOnlineVideosEnabled = systemConfig?.online_videos === true || systemConfig?.online_videos === 'true';
   
   const router = useRouter();
@@ -142,6 +156,11 @@ export default function OnlineSessions() {
   const [vvcError, setVvcError] = useState('');
   const [isCheckingVvc, setIsCheckingVvc] = useState(false);
   const [pendingVideo, setPendingVideo] = useState(null); // Store video info while waiting for VVC
+  const [paymentChoiceOpen, setPaymentChoiceOpen] = useState(false);
+  const [paymentChoiceLoading, setPaymentChoiceLoading] = useState(false);
+  const [unlockToastOpen, setUnlockToastOpen] = useState(false);
+  const unlockSessionInFlightRef = useRef(false);
+  const sessionUnlockViewsDecrementDoneRef = useRef(false);
   const [unlockedSessions, setUnlockedSessions] = useState(new Map()); // Store unlocked sessions with VVC info
 
   // Auto-hide VVC popup messages after 6s
@@ -244,14 +263,20 @@ export default function OnlineSessions() {
     selectedVideoRef.current = selectedVideo;
   }, [selectedVideo]);
 
+  const attendanceSessionIdRef = useRef(null);
+
   useEffect(() => {
-    if (videoPopupOpen) {
-      vvcViewsDecrementDoneRef.current = false;
-      freeViewsDecrementDoneRef.current = false;
-      watchedTenPercentRef.current = false;
+    if (!videoPopupOpen) return;
+    const sid =
+      selectedVideo?._id != null ? String(selectedVideo._id) : null;
+    if (sid && attendanceSessionIdRef.current !== sid) {
+      attendanceSessionIdRef.current = sid;
       attendancePostedRef.current = false;
     }
-  }, [videoPopupOpen, selectedVideo?._id]);
+    vvcViewsDecrementDoneRef.current = false;
+    freeViewsDecrementDoneRef.current = false;
+    watchedTenPercentRef.current = false;
+  }, [videoPopupOpen, selectedVideo?._id, selectedVideo?.video_ID]);
 
   useEffect(() => {
     if (!studentId) return;
@@ -387,10 +412,27 @@ export default function OnlineSessions() {
     return true;
   };
 
+  const getSessionUnlockEntry = (sessionId) => {
+    const list = studentData?.online_sessions;
+    if (!Array.isArray(list) || !sessionId) return null;
+    return (
+      list.find((s) => {
+        const vid = typeof s.video_id === 'string' ? s.video_id : s.video_id?.toString();
+        return vid === String(sessionId);
+      }) || null
+    );
+  };
+
   const isVideoUnlocked = (session) => {
     const sessionId = session._id?.toString() || session._id;
     const unlockedInfo = unlockedSessions.get(sessionId);
     const lessonData = getStudentLesson(studentData?.lessons, session.lesson);
+    const redeemed = getSessionUnlockEntry(sessionId);
+
+    // Session-credit unlock (works for paid and free / free_if_* when credit was used)
+    if (redeemed?.paid_with_session) {
+      return true;
+    }
 
     if (session.payment_state === 'free' || session.payment_state === 'free_if_attended_in_center') {
       const entry = getFreeViewingEntry(sessionId);
@@ -426,6 +468,38 @@ export default function OnlineSessions() {
       return true;
     }
     return false;
+  };
+
+  const isVideoPartPlayable = (session, videoId, videoIndex) => {
+    if (!isVideoUnlocked(session)) return false;
+    const sessionId = session._id?.toString() || session._id;
+    const unlockedInfo = unlockedSessions.get(sessionId);
+    const remaining = getVideoPartViewsRemaining({
+      session,
+      sessionId,
+      videoId,
+      videoIndex,
+      studentOnlineEntries: studentData?.online_sessions || [],
+      studentHomeworkEntries: [],
+      unlockedInfo,
+    });
+    if (remaining === null) return true;
+    return remaining > 0;
+  };
+
+  const getVideoStatusBracket = (session, videoId, videoIndex) => {
+    const sessionId = session._id?.toString() || session._id;
+    const unlockedInfo = unlockedSessions.get(sessionId);
+    return getVideoAccessBracketLabel({
+      session,
+      sessionId,
+      videoId,
+      videoIndex,
+      studentOnlineEntries: studentData?.online_sessions || [],
+      studentHomeworkEntries: [],
+      unlockedInfo,
+      isUnlocked: isVideoUnlocked(session),
+    });
   };
 
   // Handle VVC submission
@@ -520,11 +594,14 @@ export default function OnlineSessions() {
     if (!v?.vvc_id || v.code_settings !== 'number_of_views') return;
     vvcViewsDecrementDoneRef.current = true;
     try {
+      const sessionId = typeof v._id === 'string' ? v._id : v._id.toString();
       const decrementResponse = await apiClient.post('/api/vvc/decrement-views', {
-        vvc_id: v.vvc_id
+        vvc_id: v.vvc_id,
+        session_id: sessionId,
+        video_id: v.video_ID,
+        video_part_key: v.video_ID,
       });
       if (decrementResponse.data.success) {
-        const sessionId = typeof v._id === 'string' ? v._id : v._id.toString();
         const remaining = Number(decrementResponse.data.number_of_views);
         setUnlockedSessions((prev) => {
           const updatedUnlocked = new Map(prev);
@@ -584,7 +661,7 @@ export default function OnlineSessions() {
 
       // Keep scoring limited to paid sessions; attendance itself is recorded
       // for every payment state after the 10% milestone.
-      if (isScoringEnabled && currentVideo.payment_state === 'paid') {
+      if (isScoringEnabled) {
         try {
           const sessionLesson = currentVideo.lesson || null;
           let alreadyScored = false;
@@ -676,14 +753,18 @@ export default function OnlineSessions() {
     if (!FREE_ONLINE_SESSION_PAYMENT_STATES.includes(v.payment_state)) return;
     if (v.viewing_limit_type !== 'number_of_views') return;
     if (v.vvc_id) return; // unlocked via VVC — don't consume free views
+    const sessionId = typeof v._id === 'string' ? v._id : v._id.toString();
+    const redeemed = getSessionUnlockEntry(sessionId);
+    if (redeemed?.paid_with_session) return; // unlocked via session credit
     if (freeViewsDecrementDoneRef.current) return;
     freeViewsDecrementDoneRef.current = true;
     try {
-      const sessionId = typeof v._id === 'string' ? v._id : v._id.toString();
       const decrementResponse = await apiClient.post(`/api/students/${profile.id}/watch-video`, {
         session_id: sessionId,
         action: 'decrement_free_views',
         payment_state: v.payment_state,
+        video_id: v.video_ID,
+        video_part_key: v.video_ID,
       });
       if (decrementResponse.data.success && !decrementResponse.data.skipped) {
         if (decrementResponse.data.entry) {
@@ -698,7 +779,6 @@ export default function OnlineSessions() {
       console.error('Failed to decrement free views:', err);
       freeViewsDecrementDoneRef.current = false;
       if (err.response?.data?.require_vvc || err.response?.data?.expired) {
-        const sessionId = typeof v._id === 'string' ? v._id : v._id.toString();
         if (err.response?.data?.entry) {
           applyFreeViewingEntryToCache(sessionId, err.response.data.entry);
         } else {
@@ -706,7 +786,41 @@ export default function OnlineSessions() {
         }
       }
     }
-  }, [profile?.id, studentId, queryClient, applyFreeViewingEntryToCache]);
+  }, [profile?.id, studentId, queryClient, applyFreeViewingEntryToCache, studentData?.online_sessions]);
+
+  const tryDecrementSessionUnlockViewsOnWatchProgress = useCallback(async () => {
+    if (sessionUnlockViewsDecrementDoneRef.current) return;
+    const v = selectedVideoRef.current;
+    if (!v?._id || !profile?.id || !studentId) return;
+    const sessionId = typeof v._id === 'string' ? v._id : v._id.toString();
+    const redeemed = getSessionUnlockEntry(sessionId);
+    if (!redeemed?.paid_with_session) return;
+    sessionUnlockViewsDecrementDoneRef.current = true;
+    try {
+      const decrementResponse = await apiClient.post(`/api/students/${profile.id}/watch-video`, {
+        session_id: sessionId,
+        action: 'decrement_session_unlock_views',
+        video_id: v.video_ID,
+        video_part_key: v.video_ID,
+      });
+      if (decrementResponse.data?.success && !decrementResponse.data?.skipped) {
+        if (decrementResponse.data.entry) {
+          applyStudentArrayEntryToCache(queryClient, studentId, {
+            arrayField: 'online_sessions',
+            sessionId,
+            entry: decrementResponse.data.entry,
+          });
+        } else {
+          invalidateStudentDetailCaches(queryClient, studentId);
+        }
+      } else if (!decrementResponse.data?.success) {
+        sessionUnlockViewsDecrementDoneRef.current = false;
+      }
+    } catch (err) {
+      console.error('Failed to decrement session-unlock views:', err);
+      sessionUnlockViewsDecrementDoneRef.current = false;
+    }
+  }, [profile?.id, studentId, queryClient, studentData?.online_sessions]);
 
   const handleWatchTenPercent = useCallback(async (...args) => {
     const watchedPercent =
@@ -714,9 +828,15 @@ export default function OnlineSessions() {
         typeof args[1] === 'number' ? args[1] : 10;
     watchedTenPercentRef.current = true;
     await tryDecrementVvcViewsOnWatchProgress();
+    await tryDecrementSessionUnlockViewsOnWatchProgress();
     await tryDecrementFreeViewsOnWatchProgress();
     await postWatchAttendance(selectedVideoRef.current, watchedPercent);
-  }, [tryDecrementVvcViewsOnWatchProgress, tryDecrementFreeViewsOnWatchProgress, postWatchAttendance]);
+  }, [
+    tryDecrementVvcViewsOnWatchProgress,
+    tryDecrementSessionUnlockViewsOnWatchProgress,
+    tryDecrementFreeViewsOnWatchProgress,
+    postWatchAttendance,
+  ]);
 
   // Handle R2 video completion (>= 90% watched)
   const handleR2VideoComplete = useCallback(async (videoId, percent) => {
@@ -731,8 +851,8 @@ export default function OnlineSessions() {
     const sessionId = session._id?.toString() || session._id;
     const freeEntry = getFreeViewingEntry(sessionId);
     
-    // Check if video is unlocked
-    if (isVideoUnlocked(session)) {
+    // Check if this video part can be played
+    if (isVideoPartPlayable(session, videoId, videoIndex)) {
       // Video is unlocked - check deadline date (views decrement after >=10% watch via player)
       let unlockedInfo = unlockedSessions.get(sessionId);
 
@@ -879,8 +999,12 @@ export default function OnlineSessions() {
         }
       }
 
-      // Locked (paid, free expired, or free-if-attended without center attendance) → VVC popup
+      // Locked (paid, free expired, or free-if-attended without center attendance)
       setPendingVideo({ session, videoId, videoIndex, videoType });
+      if (isPaymentSystemEnabled) {
+        setPaymentChoiceOpen(true);
+        return;
+      }
       setVvcPopupOpen(true);
       setVvc('');
       setVvcError(
@@ -1077,7 +1201,8 @@ export default function OnlineSessions() {
                           const videoType = session[`video_type_${video.index}`] || 'youtube';
                           // Get video name, default to "Video {index}" if not set
                           const videoName = video.name || `Video ${video.index}`;
-                          const isUnlocked = isVideoUnlocked(session);
+                          const isUnlocked = isVideoPartPlayable(session, video.id, video.index);
+                          const statusBracket = getVideoStatusBracket(session, video.id, video.index);
                           return (
                             <div key={vidIndex} style={{ marginBottom: vidIndex < videoIds.length - 1 ? '12px' : '0' }}>
                               <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
@@ -1112,7 +1237,10 @@ export default function OnlineSessions() {
                                     height={20} 
                                     style={{ display: 'inline-block' }} 
                                   />
-                                  {videoName}
+                                  <span>{videoName}</span>
+                                  {statusBracket && (
+                                    <span style={{ fontSize: '0.75rem', opacity: 0.9 }}>({statusBracket})</span>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -1130,6 +1258,100 @@ export default function OnlineSessions() {
           {/* Help Text */}
           <NeedHelp style={{ padding: "20px", borderTop: "1px solid #e9ecef" }} />
         </div>
+
+        <VideoUnlockPaymentChoiceModal
+          isOpen={paymentChoiceOpen}
+          onClose={() => {
+            if (paymentChoiceLoading) return;
+            setPaymentChoiceOpen(false);
+            setPendingVideo(null);
+          }}
+          loading={paymentChoiceLoading}
+          sessionsAvailable={Number(studentData?.payment?.numberOfSessions) || 0}
+          paymentState={pendingVideo?.session?.payment_state || ''}
+          codeLabel="Use VVC Code"
+          onUseCode={() => {
+            setPaymentChoiceOpen(false);
+            setVvcPopupOpen(true);
+          }}
+          onConfirmSession={async () => {
+            if (!pendingVideo || !profile?.id) {
+              throw new Error('Video is not ready. Please try again.');
+            }
+            if (paymentChoiceLoading || unlockSessionInFlightRef.current) return;
+            unlockSessionInFlightRef.current = true;
+            setPaymentChoiceLoading(true);
+            try {
+              const pending = pendingVideo;
+              const sessionId = pending.session._id?.toString();
+              const videoType =
+                pending.videoType ||
+                pending.session[`video_type_${pending.videoIndex}`] ||
+                'youtube';
+              const unlockRes = await apiClient.post(
+                `/api/students/${profile.id}/unlock-paid-content-with-session`,
+                {
+                  session_id: sessionId,
+                  content_type: 'online_session',
+                  video_id: pending.videoId,
+                  video_index: pending.videoIndex,
+                  lesson: pending.session.lesson || pending.session.name,
+                }
+              );
+              await cancelStudentDetailFetches(queryClient, studentId || profile.id);
+              applySessionCreditUnlockToCache(queryClient, studentId || profile.id, {
+                arrayField: 'online_sessions',
+                sessionId,
+                videoId: pending.videoId,
+                videoIndex: pending.videoIndex,
+                numberOfSessions: unlockRes.data?.numberOfSessions,
+              });
+              if (unlockRes.data?.entry) {
+                applyStudentArrayEntryToCache(queryClient, studentId || profile.id, {
+                  arrayField: 'online_sessions',
+                  sessionId,
+                  entry: {
+                    ...unlockRes.data.entry,
+                    paid_with_session: true,
+                    views_per_video_limit:
+                      unlockRes.data.entry.views_per_video_limit ?? 1,
+                  },
+                });
+              }
+              setPaymentChoiceOpen(false);
+              setPendingVideo(null);
+              setUnlockToastOpen(true);
+              setSelectedVideo({
+                ...pending.session,
+                video_ID: pending.videoId,
+                video_type: videoType,
+              });
+              setVideoPopupOpen(true);
+              videoStartTimeRef.current = Date.now();
+              r2CompletedRef.current = false;
+              watchedTenPercentRef.current = false;
+              freeViewsDecrementDoneRef.current = false;
+              sessionUnlockViewsDecrementDoneRef.current = false;
+              vvcViewsDecrementDoneRef.current = false;
+              attendancePostedRef.current = false;
+              // Soft sync later so optimistic unlock isn't overwritten by a stale fetch
+              setTimeout(() => {
+                invalidateStudentDetailCaches(queryClient, studentId || profile.id);
+              }, 1500);
+            } finally {
+              unlockSessionInFlightRef.current = false;
+              setPaymentChoiceLoading(false);
+            }
+          }}
+        />
+
+        <UnlockSuccessToast
+          open={unlockToastOpen}
+          title="Video unlocked"
+          message="1 view is now available."
+          onClose={() => setUnlockToastOpen(false)}
+          aboveVideo={videoPopupOpen}
+        />
 
         {/* VVC Popup */}
         {vvcPopupOpen && (
@@ -1161,8 +1383,12 @@ export default function OnlineSessions() {
                 padding: '40px',
                 maxWidth: '450px',
                 width: '100%',
+                margin: 'auto',
                 boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
-                border: '1px solid rgba(255,255,255,0.2)'
+                border: '1px solid rgba(255,255,255,0.2)',
+                maxHeight: '90vh',
+                overflowY: 'auto',
+                boxSizing: 'border-box'
               }}
               onClick={(e) => e.stopPropagation()}
             >
@@ -1211,7 +1437,8 @@ export default function OnlineSessions() {
                   backgroundColor: '#ffffff',
                   transition: 'all 0.3s ease',
                   boxShadow: vvcError ? '0 0 0 4px rgba(220, 53, 69, 0.1)' : '0 2px 8px rgba(0,0,0,0.08)',
-                  outline: 'none'
+                  outline: 'none',
+                  boxSizing: 'border-box'
                 }}
                 onFocus={(e) => {
                   e.target.style.border = '3px solid #1FA8DC';
@@ -1304,7 +1531,7 @@ export default function OnlineSessions() {
         {/* Video Player Popup */}
         {videoPopupOpen && selectedVideo && (
           <div
-            className="video-popup-overlay"
+            className={`video-popup-overlay${unlockToastOpen ? ' video-popup-overlay--with-toast' : ''}`}
             style={{
               position: 'fixed',
               top: 0,
@@ -1317,7 +1544,8 @@ export default function OnlineSessions() {
               alignItems: 'center',
               justifyContent: 'center',
               zIndex: 2000,
-              padding: '20px'
+              padding: '20px',
+              boxSizing: 'border-box',
             }}
             onClick={(e) => {
               if (e.target === e.currentTarget) {
@@ -1558,6 +1786,10 @@ export default function OnlineSessions() {
               display: none !important;
             }
           }
+
+          .video-popup-overlay--with-toast {
+            padding-bottom: max(100px, calc(84px + env(safe-area-inset-bottom, 0px))) !important;
+          }
           
           @media (max-width: 768px) {
             .page-wrapper {
@@ -1575,6 +1807,10 @@ export default function OnlineSessions() {
             
             .video-popup-overlay {
               padding: 10px !important;
+            }
+
+            .video-popup-overlay--with-toast {
+              padding-bottom: max(96px, calc(72px + env(safe-area-inset-bottom, 0px))) !important;
             }
             
             .video-player-container {
@@ -1613,6 +1849,10 @@ export default function OnlineSessions() {
             
             .video-popup-overlay {
               padding: 5px !important;
+            }
+
+            .video-popup-overlay--with-toast {
+              padding-bottom: max(88px, calc(68px + env(safe-area-inset-bottom, 0px))) !important;
             }
             
             .video-player-container {

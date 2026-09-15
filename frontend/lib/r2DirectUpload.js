@@ -1,9 +1,6 @@
 /**
- * Browser → R2 direct upload (presigned PUT), same pattern as VideoInput.
- * Used for large PDFs that exceed Cloudinary's free-plan 10 MB cap.
+ * Browser → same-origin proxy → R2 (no presigned URLs in the network tab).
  */
-
-import apiClient from './axios';
 
 const ALLOWED_PREFIXES = new Set([
   'pdfs/material',
@@ -25,38 +22,25 @@ export async function uploadToR2Direct(file, options) {
     throw new Error('Invalid upload prefix');
   }
 
-  // Best-effort CORS setup (same as videos)
-  try {
-    await apiClient.post('/api/upload/r2-setup-cors');
-  } catch {
-    /* continue — signed-url also ensures CORS */
-  }
+  const form = new FormData();
+  form.append('file', file, file.name || 'upload.bin');
+  form.append('prefix', prefix);
+  form.append('fileName', file.name || 'upload.bin');
 
-  const { data } = await apiClient.post('/api/upload/r2-signed-url', {
-    fileName: file.name || 'upload.bin',
-    contentType: file.type || 'application/octet-stream',
-    prefix,
-  });
-
-  const { signedUrl, key, contentType: signedContentType, corsSetup } = data || {};
-  if (!signedUrl || !key) {
-    throw new Error('Failed to get upload URL from server');
-  }
-
-  const putContentType = signedContentType || file.type || 'application/octet-stream';
-
-  await new Promise((resolve, reject) => {
+  const key = await new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('PUT', signedUrl, true);
+    xhr.open('POST', '/api/upload/r2-proxy-upload', true);
+    xhr.withCredentials = true;
     xhr.timeout = 0;
-    xhr.setRequestHeader('Content-Type', putContentType);
 
     if (options.onProgress) {
       xhr.upload.onprogress = (evt) => {
         if (evt.lengthComputable && evt.total > 0) {
           try {
             options.onProgress(Math.min(99, Math.round((evt.loaded / evt.total) * 100)));
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
         }
       };
     }
@@ -70,32 +54,32 @@ export async function uploadToR2Direct(file, options) {
     }
 
     xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
+      let payload = null;
+      try {
+        payload = JSON.parse(xhr.responseText || '{}');
+      } catch {
+        payload = null;
+      }
+      if (xhr.status >= 200 && xhr.status < 300 && payload?.key) {
         if (options.onProgress) {
-          try { options.onProgress(100); } catch { /* ignore */ }
+          try {
+            options.onProgress(100);
+          } catch {
+            /* ignore */
+          }
         }
-        resolve();
+        resolve(payload.key);
       } else {
-        reject(new Error(`R2 upload failed (HTTP ${xhr.status})`));
+        reject(new Error(payload?.error || `Upload failed (HTTP ${xhr.status})`));
       }
     };
-    xhr.onerror = () => {
-      const corsDetails = corsSetup?.error;
-      reject(
-        new Error(
-          corsDetails
-            ? `Direct upload blocked by R2 CORS: ${corsDetails}`
-            : 'Network error while uploading to storage. Check R2 CORS settings.'
-        )
-      );
-    };
+    xhr.onerror = () => reject(new Error('Network error while uploading'));
     xhr.onabort = () => reject(new DOMException('Upload aborted', 'AbortError'));
-    xhr.ontimeout = () => reject(new Error('Upload to storage timed out'));
+    xhr.ontimeout = () => reject(new Error('Upload timed out'));
 
-    xhr.send(file);
+    xhr.send(form);
   });
 
-  // Same-origin proxy URL for viewing/download (works with PdfViewerModal + auth cookies)
   return {
     key,
     url: `/api/files/${key.split('/').map(encodeURIComponent).join('/')}`,

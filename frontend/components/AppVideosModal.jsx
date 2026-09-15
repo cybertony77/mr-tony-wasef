@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import styles from '../styles/AppVideosModal.module.css';
+import ManageAppVideosModal from './ManageAppVideosModal';
 
 function detectLinkKind(url) {
   const lower = String(url || '').toLowerCase();
@@ -99,8 +100,10 @@ export default function AppVideosModal({ isOpen, onClose, role = '' }) {
   const [shareErrorId, setShareErrorId] = useState(null);
   const [openId, setOpenId] = useState(null);
   const [playerState, setPlayerState] = useState({}); // id -> { status: loading|ready|error, message? }
+  const [showManage, setShowManage] = useState(false);
 
   const normalizedRole = String(role || '').toLowerCase();
+  const canManage = normalizedRole === 'developer';
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -113,6 +116,7 @@ export default function AppVideosModal({ isOpen, onClose, role = '' }) {
       try {
         const response = await fetch(`/api/app-videos?_=${Date.now()}`, {
           cache: 'no-store',
+          credentials: 'include',
           headers: { Accept: 'application/json' },
         });
         const data = await response.json();
@@ -183,16 +187,18 @@ export default function AppVideosModal({ isOpen, onClose, role = '' }) {
       setSharingId(null);
       setShareErrorId(null);
       setPlayerState({});
+      setShowManage(false);
       Object.values(loadTimersRef.current).forEach((t) => clearTimeout(t));
       loadTimersRef.current = {};
       return undefined;
     }
 
     const onPointerDown = (e) => {
+      if (showManage) return;
       if (modalRef.current && !modalRef.current.contains(e.target)) onClose();
     };
     const onKeyDown = (e) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape' && !showManage) onClose();
     };
 
     document.addEventListener('mousedown', onPointerDown);
@@ -204,7 +210,7 @@ export default function AppVideosModal({ isOpen, onClose, role = '' }) {
       document.removeEventListener('keydown', onKeyDown);
       document.body.style.overflow = 'unset';
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, showManage]);
 
   const clearLoadTimer = (id) => {
     if (loadTimersRef.current[id]) {
@@ -525,8 +531,29 @@ export default function AppVideosModal({ isOpen, onClose, role = '' }) {
               </section>
             ))
           )}
+
+          {canManage ? (
+            <div className={styles.manageFooter}>
+              <button
+                type="button"
+                className={styles.manageBtn}
+                onClick={() => setShowManage(true)}
+              >
+                <Image src="/settings.svg" alt="" width={18} height={18} />
+                Manage App Videos
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
+
+      <ManageAppVideosModal
+        isOpen={showManage}
+        onClose={() => setShowManage(false)}
+        onSaved={() => {
+          setCatalogReloadKey((key) => key + 1);
+        }}
+      />
     </div>
   );
 }

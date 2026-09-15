@@ -4,15 +4,15 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { sendPasswordChangeEmail } from '../../lib/emailUtils';
+import { hashPasswordResetToken } from '../../../../lib/authSecrets';
+import { checkRateLimit, clientKey } from '../../../../lib/rateLimit';
 
-// Load environment variables from env.config
 function loadEnvConfig() {
   try {
     const envPath = path.join(process.cwd(), '..', 'env.config');
     const envContent = fs.readFileSync(envPath, 'utf8');
     const envVars = {};
-    
-    envContent.split('\n').forEach(line => {
+    envContent.split('\n').forEach((line) => {
       const trimmed = line.trim();
       if (trimmed && !trimmed.startsWith('#')) {
         const index = trimmed.indexOf('=');
@@ -24,10 +24,8 @@ function loadEnvConfig() {
         }
       }
     });
-    
     return envVars;
-  } catch (error) {
-    console.log('⚠️  Could not read env.config, using process.env as fallback');
+  } catch {
     return {};
   }
 }
@@ -35,17 +33,16 @@ function loadEnvConfig() {
 const envConfig = loadEnvConfig();
 const MONGO_URI = envConfig.MONGO_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/topphysics';
 const DB_NAME = envConfig.DB_NAME || process.env.DB_NAME || 'topphysics';
-const JWT_SECRET = envConfig.JWT_SECRET || process.env.JWT_SECRET || 'topphysics_secret';
-
-// Generate HMAC signature (same as verify-otp.js)
-function generateHMAC(id) {
-  const message = id + 'rest_pass_from_otp';
-  return crypto.createHmac('sha256', JWT_SECRET).update(message).digest('hex');
-}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const rl = checkRateLimit(clientKey(req, 'reset-password'), { windowMs: 60 * 1000, max: 10 });
+  if (!rl.ok) {
+    res.setHeader('Retry-After', String(rl.retryAfterSec || 60));
+    return res.status(429).json({ error: 'Too many attempts. Please try again later.' });
   }
 
   const { id, newPassword, sig } = req.body;
@@ -59,14 +56,9 @@ export default async function handler(req, res) {
   if (typeof newPassword !== 'string') {
     return res.status(400).json({ error: 'Invalid password type' });
   }
-  if (typeof sig !== 'string') {
-    return res.status(400).json({ error: 'Invalid signature type' });
-  }
-
-  if (!sig) {
+  if (typeof sig !== 'string' || !sig) {
     return res.status(400).json({ error: 'Signature is required. Please verify OTP first.' });
   }
-
   if (newPassword.length < 8) {
     return res.status(400).json({ error: 'Password must be at least 8 characters' });
   }
@@ -80,38 +72,49 @@ export default async function handler(req, res) {
 
     const userId = /^\d+$/.test(safeId) ? Number(safeId) : safeId;
     const user = await db.collection('users').findOne({
-      $or: [
-        { id: userId },
-        { id: safeId }
-      ]
+      $or: [{ id: userId }, { id: safeId }],
     });
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Verify HMAC signature (authorization check)
-    // The signature itself proves that OTP was verified, since it's only generated after successful OTP verification
-    const expectedSig = generateHMAC(user.id.toString());
+    const storedHash = user.OTP_rest_password?.reset_token_hash;
+    const expires = user.OTP_rest_password?.reset_token_expires
+      ? new Date(user.OTP_rest_password.reset_token_expires)
+      : null;
+
+    if (!storedHash || !expires) {
+      return res.status(403).json({
+        error: 'Unauthorized. Please verify OTP first.',
+      });
+    }
+
+    if (new Date() > expires) {
+      return res.status(403).json({
+        error: 'Reset token expired. Please verify OTP again.',
+      });
+    }
+
+    const incomingHash = hashPasswordResetToken(sig);
     let isValid = false;
     try {
       isValid = crypto.timingSafeEqual(
-        Buffer.from(sig),
-        Buffer.from(expectedSig)
+        Buffer.from(incomingHash, 'utf8'),
+        Buffer.from(String(storedHash), 'utf8')
       );
-    } catch (error) {
-      console.error('Signature verification error:', error);
-      return res.status(403).json({ error: 'Invalid signature format.' });
+    } catch {
+      isValid = false;
     }
 
     if (!isValid) {
-      return res.status(403).json({ error: 'Unauthorized. Invalid signature. Please verify OTP first.' });
+      return res.status(403).json({
+        error: 'Unauthorized. Invalid signature. Please verify OTP first.',
+      });
     }
 
-    // Hash new password
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-    // Update password, set used to true, and clear OTP and expiration date
     await db.collection('users').updateOne(
       { id: user.id },
       {
@@ -119,20 +122,22 @@ export default async function handler(req, res) {
           password: hashedPassword,
           'OTP_rest_password.OTP': null,
           'OTP_rest_password.OTP_Expiration_Date': null,
-          'OTP_rest_password.used': true
-        }
+          'OTP_rest_password.used': true,
+          'OTP_rest_password.reset_token_hash': null,
+          'OTP_rest_password.reset_token_expires': null,
+        },
       }
     );
 
-    // Send password change email notification
     if (user.email) {
-      const userName = user.name || 'User';
-      const userRole = user.role || 'student';
       try {
-        await sendPasswordChangeEmail(user.email, userName, userRole);
+        await sendPasswordChangeEmail(
+          user.email,
+          user.name || 'User',
+          user.role || 'student'
+        );
       } catch (emailError) {
         console.error('Failed to send password change email:', emailError);
-        // Don't fail the request if email fails
       }
     }
 
@@ -144,4 +149,3 @@ export default async function handler(req, res) {
     if (client) await client.close();
   }
 }
-

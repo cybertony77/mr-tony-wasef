@@ -17,7 +17,7 @@ export const config = {
   },
 };
 
-const ALLOWED_PREFIXES = ['pdfs/'];
+const ALLOWED_PREFIXES = ['pdfs/', 'videos/'];
 /** Prefer larger pipe buffers for multi‑MB PDFs. */
 const STREAM_HIGH_WATER_MARK = 1024 * 1024; // 1 MiB
 
@@ -27,6 +27,10 @@ function getContentType(key) {
   if (lower.endsWith('.png')) return 'image/png';
   if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
   if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.mp4')) return 'video/mp4';
+  if (lower.endsWith('.webm')) return 'video/webm';
+  if (lower.endsWith('.mov')) return 'video/quicktime';
+  if (lower.endsWith('.m4v')) return 'video/x-m4v';
   return 'application/octet-stream';
 }
 

@@ -171,14 +171,13 @@ export default function DesmosQuestionAssist({
   const { data: systemConfig } = useSystemConfig();
   // SYSTEM_DESMOS_INTEGRATIONS (exposed as desmos_integrations)
   const featureOn = isFeatureEnabled(systemConfig?.desmos_integrations);
-  const apiKey = String(systemConfig?.desmos_api_key || '').trim();
+  const desmosConfigured = isFeatureEnabled(systemConfig?.desmos_configured);
   const questionWantsDesmos = isDesmosEnabledForQuestion(useDesmos);
-  // Both required: use_desmos=true AND SYSTEM_DESMOS_INTEGRATIONS=true (plus API key).
-  // If use_desmos is true but the system flag is off, do not show the button.
-  // standalone=true: dashboard shortcut — system flag + API key only.
+  // Both required: use_desmos=true AND SYSTEM_DESMOS_INTEGRATIONS=true (plus server key).
+  // API key is never sent to the client — calculator loads via /api/desmos/calculator.js
   const show = standalone
-    ? featureOn && Boolean(apiKey)
-    : questionWantsDesmos && featureOn && Boolean(apiKey);
+    ? featureOn && desmosConfigured
+    : questionWantsDesmos && featureOn && desmosConfigured;
   const group = useDesmosAssistGroup();
   const isCompact = useIsCompactLayout(1024);
   const reactId = useId();
@@ -574,8 +573,8 @@ export default function DesmosQuestionAssist({
         setStatus('loading');
         setErrorMsg('');
 
-        // Shared calculator.js once — never geometry.js
-        const Desmos = await loadDesmosApi(apiKey);
+        // Shared calculator.js via authenticated proxy — never expose DESMOS_API_KEY
+        const Desmos = await loadDesmosApi();
         if (cancelled) return;
 
         await new Promise((r) => requestAnimationFrame(r));
@@ -610,7 +609,7 @@ export default function DesmosQuestionAssist({
       cancelled = true;
       if (iframeTimer) window.clearTimeout(iframeTimer);
     };
-  }, [everOpened, show, apiKey, instanceKey, calcType, destroyCalculator, resizeCalculator]);
+  }, [everOpened, show, instanceKey, calcType, destroyCalculator, resizeCalculator]);
 
   useEffect(() => {
     if (!open || status !== 'ready') return undefined;

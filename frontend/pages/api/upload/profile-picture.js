@@ -1,4 +1,6 @@
 import { getCloudinary } from '../../../lib/cloudinaryConfig';
+import { authMiddleware, isAuthError } from '../../../lib/authMiddleware';
+import {isForbiddenError, forbiddenJson} from '../../../lib/requireStaff';
 
 const cloudinary = getCloudinary();
 
@@ -8,11 +10,9 @@ const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif',
 
 export default async function handler(req, res) {
   const origin = req.headers.origin;
-  if (origin) {
+  if (origin && /^https?:\/\//i.test(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
-  } else {
-    res.setHeader('Access-Control-Allow-Origin', '*');
   }
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -26,6 +26,11 @@ export default async function handler(req, res) {
   }
 
   try {
+    const user = await authMiddleware(req);
+    if (!['student', 'admin', 'developer', 'assistant'].includes(user.role)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
     if (!req.body || !req.body.file) {
       return res.status(400).json({ error: 'No file provided' });
     }
@@ -36,6 +41,10 @@ export default async function handler(req, res) {
       typeof folderRaw === 'string' && allowedFolders.has(folderRaw.trim())
         ? folderRaw.trim()
         : 'profile-pictures';
+
+    if (user.role === 'student' && folder !== 'profile-pictures') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
 
     let normalizedFileType = typeof fileType === 'string' ? fileType.toLowerCase().trim() : '';
     if (normalizedFileType === 'image/jpg') normalizedFileType = 'image/jpeg';
@@ -74,6 +83,13 @@ export default async function handler(req, res) {
       public_id: uploadResult.public_id,
     });
   } catch (error) {
+    if (isAuthError(error)) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    if (isForbiddenError(error)) {
+      return res.status(403).json(forbiddenJson(error));
+    }
+
     console.error('Cloudinary upload error (profile-picture):', error?.message || error);
 
     if (error.http_code === 400) {

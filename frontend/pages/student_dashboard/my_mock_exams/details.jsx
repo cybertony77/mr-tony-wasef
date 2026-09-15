@@ -14,6 +14,7 @@ import AnswerStatusBubble from '../../../components/online/AnswerStatusBubble';
 import DesmosAssistGroup from '../../../components/student/DesmosAssistGroup';
 import DesmosQuestionAssist from '../../../components/student/DesmosQuestionAssist';
 import MathReferenceSheetAssist from '../../../components/student/MathReferenceSheetAssist';
+import ExplanationVideoWatchButton, { QuestionExplanationDisplay } from '../../../components/ExplanationVideoPlayerModal';
 
 export default function MockExamDetails() {
   const router = useRouter();
@@ -369,6 +370,17 @@ export default function MockExamDetails() {
               }
               return null;
             })()}
+            {((mockExam?.show_overall_questions_explanation_video === true ||
+              mockExam?.show_overall_questions_explanation_video === 'true') &&
+              mockExam?.overall_questions_explanation_video) ? (
+              <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-start', flexWrap: 'wrap', width: '100%' }}>
+                <ExplanationVideoWatchButton
+                  video={mockExam.overall_questions_explanation_video}
+                  label="Overall questions explanation"
+                  watermarkText={String(profile?.id || '')}
+                />
+              </div>
+            ) : null}
           </div>
 
           {/* Questions List */}
@@ -573,25 +585,11 @@ export default function MockExamDetails() {
                   )}
 
                   {/* Question Explanation */}
-                  {question.question_explanation && question.question_explanation.trim() !== '' && (
-                    <div style={{
-                      marginTop: '16px',
-                      padding: '12px 16px',
-                      backgroundColor: '#e7f3ff',
-                      border: '2px solid #1FA8DC',
-                      borderRadius: '8px',
-                      fontSize: '0.95rem',
-                      color: '#004085',
-                      lineHeight: '1.6'
-                    }}>
-                      <div style={{ fontWeight: '600', marginBottom: '8px', color: '#1FA8DC' }}>
-                        💡 Explanation:
-                      </div>
-                      <div style={{ whiteSpace: 'pre-wrap' }}>
-                        {question.question_explanation}
-                      </div>
-                    </div>
-                  )}
+                  <QuestionExplanationDisplay
+                    text={question.question_explanation}
+                    video={question.question_explanation_video}
+                    watermarkText={String(profile?.id || '')}
+                  />
 
                   {/* Not Answered Indicator */}
                   {!item.isAnswered && (

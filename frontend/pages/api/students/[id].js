@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { getCookieValue } from '../../../lib/cookies';
 import { authMiddleware, isAuthError } from "../../../lib/authMiddleware";
+import {requireStaff, requireStaffOrSelfStudent, isForbiddenError, forbiddenJson} from '../../../lib/requireStaff';
 import { getHomeworkVideoLessonsForStudent } from '../../../lib/homeworkVideoLessons';
 
 // Load environment variables from env.config
@@ -53,6 +54,12 @@ export default async function handler(req, res) {
     
     // Verify authentication
     const user = await authMiddleware(req);
+    // GET: student may read own record; staff may read any. Mutations: staff only.
+    if (req.method === 'GET') {
+      await requireStaffOrSelfStudent(user, student_id);
+    } else {
+      await requireStaff(user);
+    }
     
     if (req.method === 'GET') {
       // Get student info
@@ -421,6 +428,9 @@ export default async function handler(req, res) {
   } catch (error) {
     if (isAuthError(error)) {
       return res.status(401).json({ error: 'Unauthorized' });
+    }
+    if (isForbiddenError(error) || error.message === 'Forbidden' || String(error.message||'').includes('Forbidden')) {
+      return res.status(403).json(forbiddenJson(error));
     }
     console.error('Error:', error);
     return res.status(500).json({ error: 'Internal server error' });

@@ -9,11 +9,11 @@ import LoadingSkeleton from '../../components/LoadingSkeleton';
 import { useQuery } from '@tanstack/react-query';
 import apiClient from '../../lib/axios';
 import Image from 'next/image';
-import { verifySignature } from '../../lib/hmac';
 import ChartTabs from '../../components/ChartTabs';
 import { useSystemConfig, useNationalSystem, getCourseFieldLabels, isFeatureEnabled } from '../../lib/api/system';
 import MarketingPageLoader from '../../components/MarketingPageLoader';
 import SiteSeo from '../../components/SiteSeo';
+import { getStudentInfoPublicSeo } from '../../lib/seo';
 import { sortStudentsByName } from '../../lib/sortStudentsByName';
 
 const welcomeDisplayFont = Playfair_Display({
@@ -138,30 +138,26 @@ export default function StudentInfo() {
       }
       
       console.log('🔍 Verifying HMAC signature:', { studentIdFromUrl, signature, hasToken: hasAuthToken });
-      
-      try {
-        // Verify the signature
-        const isValid = verifySignature(studentIdFromUrl, signature);
-        
-        if (isValid) {
+
+      (async () => {
+        try {
+          // Server verifies HMAC — client must not verify (secret is server-only)
+          await apiClient.get(
+            `/api/students/public/${encodeURIComponent(studentIdFromUrl)}?sig=${encodeURIComponent(signature)}`
+          );
           console.log('✅ HMAC signature is valid');
           setStudentId(studentIdFromUrl);
           setIsValidSignature(true);
-  
-          // If user has token, also set searchId to fetch via authenticated API
+
           if (hasAuthToken) {
             setSearchId(studentIdFromUrl);
           }
-        } else {
-          console.log('❌ HMAC signature is invalid');
+        } catch (error) {
+          console.error('❌ Error verifying signature:', error);
           setIsValidSignature(false);
           router.push('/student_not_found');
         }
-      } catch (error) {
-        console.error('❌ Error verifying signature:', error);
-        setIsValidSignature(false);
-        router.push('/student_not_found');
-      }
+      })();
       return;
     }
     
@@ -720,12 +716,23 @@ export default function StudentInfo() {
     isPublicGuest &&
     (!minLoaderElapsed || (!!router.query.sig && !publicContentReady));
 
+  const signedParentSeo =
+    isPublicGuest && isValidSignature && router.query.sig
+      ? getStudentInfoPublicSeo({
+          siteName: systemName || systemConfig?.name,
+          studentName: currentStudent?.name || '',
+        })
+      : null;
+
+  const staffSeoDescription =
+    'Student progress for authorized staff—attendance, homework, quizzes, and performance charts. Not indexed by search engines.';
+
   return (
     <div style={{ position: 'relative', minHeight: '100%' }}>
-      {/* Private parent/staff view — NEVER index (accessible ≠ indexable) */}
+      {/* Signed parent links: rich previews; always noindex (accessible ≠ indexable) */}
       <SiteSeo
-        title="Student Information"
-        description="Private student progress page for authorized parents and staff. This page is not indexed by search engines."
+        title={signedParentSeo?.title || 'Student Information'}
+        description={signedParentSeo?.description || staffSeoDescription}
         path="/dashboard/student_info"
         noindex
         omitCanonical

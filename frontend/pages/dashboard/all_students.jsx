@@ -8,6 +8,7 @@ import CourseSelect from "../../components/CourseSelect";
 import GradeSelect from "../../components/GradeSelect";
 import CenterSelect from "../../components/CenterSelect";
 import CourseTypeSelect from "../../components/CourseTypeSelect";
+import AccountStateSelect from "../../components/AccountStateSelect";
 import { SessionTable } from "../../components/SessionTable.jsx";
 import { IconArrowRight, IconSearch, IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 import { ActionIcon, TextInput, useMantineTheme } from '@mantine/core';
@@ -68,6 +69,7 @@ export default function AllStudents() {
   const [selectedGradeFilter, setSelectedGradeFilter] = useState(""); // For GradeSelect (Grade 9, 10, 11, 12)
   const [selectedCenter, setSelectedCenter] = useState("");
   const [selectedCourseType, setSelectedCourseType] = useState("");
+  const [selectedAccountState, setSelectedAccountState] = useState("");
   const [openDropdown, setOpenDropdown] = useState(null); // 'course', 'grade', 'center', 'courseType', or null
   const [searchInput, setSearchInput] = useState(""); // What user types in the input
   const [searchTerm, setSearchTerm] = useState(""); // Actual search term used in API query
@@ -85,6 +87,7 @@ export default function AllStudents() {
     course: selectedCourse || undefined, // CourseSelect selects courses (EST, SAT, ACT)
     center: selectedCenter || undefined,
     courseType: selectedCourseType || undefined,
+    account_state: selectedAccountState || undefined,
     sortBy: 'id',
     sortOrder: 'asc',
   }, {
@@ -111,6 +114,7 @@ export default function AllStudents() {
     const rememberedGradeFilter = sessionStorage.getItem('allStudentsSelectedGradeFilter');
     const rememberedCenter = sessionStorage.getItem('allStudentsSelectedCenter');
     const rememberedCourseType = sessionStorage.getItem('allStudentsSelectedCourseType');
+    const rememberedAccountState = sessionStorage.getItem('allStudentsSelectedAccountState');
     
     if (rememberedCourse) {
       setSelectedCourse(rememberedCourse);
@@ -124,12 +128,15 @@ export default function AllStudents() {
     if (rememberedCourseType) {
       setSelectedCourseType(rememberedCourseType);
     }
+    if (rememberedAccountState) {
+      setSelectedAccountState(rememberedAccountState);
+    }
   }, []);
 
   // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedCourse, selectedGradeFilter, selectedCenter, selectedCourseType, searchTerm]);
+  }, [selectedCourse, selectedGradeFilter, selectedCenter, selectedCourseType, selectedAccountState, searchTerm]);
 
   // Reset to page 1 when search term becomes empty
   useEffect(() => {
@@ -334,6 +341,23 @@ export default function AllStudents() {
               />
             </div>
             )}
+            <div className="filter-group">
+              <label className="filter-label">Filter by Account State</label>
+              <AccountStateSelect
+                value={selectedAccountState}
+                onChange={(state) => {
+                  const next = state || '';
+                  setSelectedAccountState(next);
+                  if (next) {
+                    sessionStorage.setItem('allStudentsSelectedAccountState', next);
+                  } else {
+                    sessionStorage.removeItem('allStudentsSelectedAccountState');
+                  }
+                }}
+                label=""
+                placeholder="Select Account State"
+              />
+            </div>
             <div className="filter-group">
               <label className="filter-label">Filter by Center</label>
               <CenterSelect

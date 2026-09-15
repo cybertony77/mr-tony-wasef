@@ -27,6 +27,7 @@ const studentsApi = {
     if (params.center) queryParams.append('center', params.center);
     if (params.courseType) queryParams.append('courseType', params.courseType);
     if (params.gender) queryParams.append('gender', params.gender);
+    if (params.account_state) queryParams.append('account_state', params.account_state);
     if (params.sortBy) queryParams.append('sortBy', params.sortBy);
     if (params.sortOrder) queryParams.append('sortOrder', params.sortOrder);
     

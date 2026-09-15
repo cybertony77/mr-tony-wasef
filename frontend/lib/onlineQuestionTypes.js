@@ -1,4 +1,5 @@
 import { newQuestionClientKey } from './onlineItemQuestionFormHelpers';
+import { createEmptyExplanationVideoForm, explanationVideoFromDb } from './explanationVideo';
 
 export const QUESTION_TYPE_MCQ = 'mcq';
 export const QUESTION_TYPE_ESSAY = 'essay';
@@ -21,6 +22,7 @@ export function createEmptyMcqQuestion(overrides = {}) {
     answer_texts: ['', '', '', ''],
     correct_answer: '',
     question_explanation: '',
+    question_explanation_video: createEmptyExplanationVideoForm(),
     use_desmos: false,
     valid_correct_answers: [],
     ...overrides,
@@ -37,6 +39,7 @@ export function createEmptyEssayQuestion(overrides = {}) {
     answer_texts: [],
     correct_answer: '',
     question_explanation: '',
+    question_explanation_video: createEmptyExplanationVideoForm(),
     use_desmos: false,
     valid_correct_answers: [],
     ...overrides,
@@ -59,6 +62,7 @@ export function normalizeLoadedQuestion(q = {}) {
       correct_answer: '',
       valid_correct_answers: valid,
       question_explanation: q.question_explanation || '',
+      question_explanation_video: explanationVideoFromDb(q.question_explanation_video),
       use_desmos: q.use_desmos === true || q.use_desmos === 'true',
     };
   }
@@ -79,6 +83,7 @@ export function normalizeLoadedQuestion(q = {}) {
     correct_answer: q.correct_answer || '',
     valid_correct_answers: [],
     question_explanation: q.question_explanation || '',
+    question_explanation_video: explanationVideoFromDb(q.question_explanation_video),
     use_desmos: q.use_desmos === true || q.use_desmos === 'true',
   };
 }

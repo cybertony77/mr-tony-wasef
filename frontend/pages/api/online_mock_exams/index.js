@@ -83,7 +83,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'POST') {
-      const { lesson_name, timer, questions, lesson, course, courseType, center, mock_exam_type, deadline_type, deadline_date, deadline_time, shuffle_questions_and_answers, show_details_after_submitting, comment, pdf_file_name, pdf_url, state, allow_downloading } = req.body;
+      const { lesson_name, timer, questions, lesson, course, courseType, center, mock_exam_type, deadline_type, deadline_date, deadline_time, shuffle_questions_and_answers, show_details_after_submitting, show_overall_questions_explanation_video, overall_questions_explanation_video, comment, pdf_file_name, pdf_url, state, allow_downloading } = req.body;
 
       const effectiveType = mock_exam_type || 'questions';
 
@@ -175,6 +175,17 @@ export default async function handler(req, res) {
         timer: effectiveType === 'questions' ? (timer !== null && timer !== undefined ? parseInt(timer) : null) : null,
         shuffle_questions_and_answers: effectiveType === 'questions' ? (shuffle_questions_and_answers === true || shuffle_questions_and_answers === 'true') : false,
         show_details_after_submitting: effectiveType === 'questions' ? (show_details_after_submitting === true || show_details_after_submitting === 'true') : false,
+        show_overall_questions_explanation_video:
+          effectiveType === 'questions'
+            ? show_overall_questions_explanation_video === true ||
+              show_overall_questions_explanation_video === 'true'
+            : false,
+        overall_questions_explanation_video:
+          effectiveType === 'questions' &&
+          (show_overall_questions_explanation_video === true ||
+            show_overall_questions_explanation_video === 'true')
+            ? overall_questions_explanation_video || null
+            : null,
         comment: comment && comment.trim() !== '' ? comment.trim() : null,
         date: new Date(),
         state: finalState
@@ -199,7 +210,7 @@ export default async function handler(req, res) {
 
     if (req.method === 'PUT') {
       const { id } = req.query;
-      const { lesson_name, timer, questions, lesson, course, courseType, center, mock_exam_type, deadline_type, deadline_date, deadline_time, shuffle_questions_and_answers, show_details_after_submitting, comment, pdf_file_name, pdf_url, state, allow_downloading } = req.body;
+      const { lesson_name, timer, questions, lesson, course, courseType, center, mock_exam_type, deadline_type, deadline_date, deadline_time, shuffle_questions_and_answers, show_details_after_submitting, show_overall_questions_explanation_video, overall_questions_explanation_video, comment, pdf_file_name, pdf_url, state, allow_downloading } = req.body;
 
       const effectiveType = mock_exam_type || 'questions';
 
@@ -296,6 +307,17 @@ export default async function handler(req, res) {
         timer: effectiveType === 'questions' ? (timer !== null && timer !== undefined ? parseInt(timer) : null) : null,
         shuffle_questions_and_answers: effectiveType === 'questions' ? (shuffle_questions_and_answers === true || shuffle_questions_and_answers === 'true') : false,
         show_details_after_submitting: effectiveType === 'questions' ? (show_details_after_submitting === true || show_details_after_submitting === 'true') : false,
+        show_overall_questions_explanation_video:
+          effectiveType === 'questions'
+            ? show_overall_questions_explanation_video === true ||
+              show_overall_questions_explanation_video === 'true'
+            : false,
+        overall_questions_explanation_video:
+          effectiveType === 'questions' &&
+          (show_overall_questions_explanation_video === true ||
+            show_overall_questions_explanation_video === 'true')
+            ? overall_questions_explanation_video || null
+            : null,
         comment: comment && comment.trim() !== '' ? comment.trim() : null,
       };
 

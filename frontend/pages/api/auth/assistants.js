@@ -2,7 +2,7 @@ import { MongoClient } from 'mongodb';
 import bcrypt from 'bcryptjs';
 import fs from 'fs';
 import path from 'path';
-import { authMiddleware } from '../../../lib/authMiddleware';
+import { authMiddleware, isAuthError } from '../../../lib/authMiddleware';
 
 // Load environment variables from env.config
 function loadEnvConfig() {
@@ -156,12 +156,22 @@ export default async function handler(req, res) {
         res.json(mappedAssistants);
       }
     } else if (req.method === 'POST') {
-      const { id, name, phone, email, password, role, account_state, ATCA } = req.body;
-      if (!id || !name || !phone || !password || !role) {
+      const { id, name, phone, email, password, account_state, ATCA } = req.body;
+      if (!id || !name || !phone || !password) {
         return res.status(400).json({ error: 'All fields are required' });
       }
-      if (typeof id !== 'string' || typeof name !== 'string' || typeof phone !== 'string' || typeof password !== 'string' || typeof role !== 'string') {
+      if (typeof id !== 'string' || typeof name !== 'string' || typeof phone !== 'string' || typeof password !== 'string') {
         return res.status(400).json({ error: 'Invalid field types' });
+      }
+
+      let role = typeof req.body.role === 'string' ? req.body.role.trim() : 'assistant';
+      if (!role) role = 'assistant';
+      if (role === 'developer') {
+        if (admin.role !== 'developer') {
+          return res.status(403).json({ error: 'Forbidden' });
+        }
+      } else if (role !== 'assistant' && role !== 'admin') {
+        return res.status(400).json({ error: 'Invalid role. Allowed: assistant, admin' });
       }
       
       if (email && email.trim() !== '') {
@@ -214,13 +224,18 @@ export default async function handler(req, res) {
       res.status(405).json({ error: 'Method not allowed' });
     }
   } catch (error) {
-    if (error.message === 'Unauthorized') {
-      res.status(401).json({ error: 'Unauthorized' });
-    } else if (error.message === 'Forbidden: Admins only') {
-      res.status(403).json({ error: 'Forbidden: Admins only' });
-    } else {
-      res.status(500).json({ error: 'Internal server error' });
+    if (isAuthError(error) || error.message === 'Unauthorized') {
+      return res.status(401).json({ error: 'Unauthorized' });
     }
+    if (
+      error.message === 'Forbidden: Admins only' ||
+      error.message === 'Forbidden: Admins or Developers only' ||
+      String(error.message || '').startsWith('Forbidden')
+    ) {
+      return res.status(403).json({ error: 'Forbidden: Admins or Developers only' });
+    }
+    console.error('assistants API error:', error?.message || error);
+    return res.status(500).json({ error: 'Internal server error' });
   } finally {
     if (client) await client.close();
   }

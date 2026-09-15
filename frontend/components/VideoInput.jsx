@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import axios from 'axios';
 import ZoomRecordingSelect from './ZoomRecordingSelect';
 import GoogleMeetRecordingSelect from './GoogleMeetRecordingSelect';
 import { useSystemConfig } from '../lib/api/system';
@@ -61,12 +60,23 @@ export default function VideoInput({
   hideTitle = false,
   hideVideoName = false,
   hideYoutubePreview = false,
+  /** Optional override for R2 upload size limit (bytes). Default 5GB. */
+  maxFileSizeBytes,
 }) {
   const { data: systemConfig } = useSystemConfig();
   const showZoomTab = isFeatureEnabled(systemConfig?.zoom_integrations);
   const showGoogleMeetTab = isFeatureEnabled(systemConfig?.google_meet_integrations);
   const showUploadFromConfig = isFeatureEnabled(systemConfig?.cloudflare_r2);
   const canShowUploadTab = Boolean(showUploadTab) && showUploadFromConfig;
+  const uploadMaxBytes =
+    Number.isFinite(Number(maxFileSizeBytes)) && Number(maxFileSizeBytes) > 0
+      ? Number(maxFileSizeBytes)
+      : 5 * 1024 * 1024 * 1024;
+  const uploadMaxLabel = (() => {
+    const mb = Math.round(uploadMaxBytes / (1024 * 1024));
+    if (mb >= 1024) return `${Math.round(mb / 1024)}GB`;
+    return `${mb} MB`;
+  })();
 
   const initialTab = (() => {
     if (video.video_source === 'r2' && canShowUploadTab) return 'upload';
@@ -184,8 +194,10 @@ export default function VideoInput({
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024 * 1024) {
-      setUploadError('❌ File size exceeds 5GB limit.');
+    if (file.size > uploadMaxBytes) {
+      const mb = Math.round(uploadMaxBytes / (1024 * 1024));
+      const label = mb >= 1024 ? `${Math.round(mb / 1024)}GB` : `${mb} MB`;
+      setUploadError(`❌ File size exceeds ${label} limit.`);
       return;
     }
 
@@ -196,79 +208,53 @@ export default function VideoInput({
     setUploadPhase('sending');
 
     try {
-      let corsSetupError = null;
-      try {
-        await axios.post('/api/upload/r2-setup-cors');
-      } catch (setupErr) {
-        corsSetupError =
-          setupErr?.response?.data?.details ||
-          setupErr?.response?.data?.error ||
-          setupErr?.message ||
-          'Unknown CORS setup error';
-      }
+      const form = new FormData();
+      form.append('file', file, file.name);
+      form.append('prefix', 'videos');
+      form.append('fileName', file.name);
 
-      const { data } = await axios.post('/api/upload/r2-signed-url', {
-        fileName: file.name,
-        contentType: file.type || 'application/octet-stream',
+      const key = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhrRef.current = xhr;
+        xhr.open('POST', '/api/upload/r2-proxy-upload', true);
+        xhr.withCredentials = true;
+        xhr.timeout = 0;
+
+        xhr.upload.addEventListener('progress', (event) => {
+          if (event.lengthComputable && event.total > 0) {
+            const raw = (event.loaded / event.total) * 100;
+            const capped = Math.min(99, Math.round(raw));
+            setUploadProgress(capped);
+            setUploadPhase(event.loaded >= event.total ? 'finishing' : 'sending');
+          }
+        });
+
+        xhr.addEventListener('loadstart', () => {
+          setUploadPhase('sending');
+        });
+
+        xhr.addEventListener('load', () => {
+          let payload = null;
+          try {
+            payload = JSON.parse(xhr.responseText || '{}');
+          } catch {
+            payload = null;
+          }
+          if (xhr.status >= 200 && xhr.status < 300 && payload?.key) {
+            setUploadProgress(100);
+            setUploadPhase('done');
+            resolve(payload.key);
+          } else {
+            reject(new Error(payload?.error || `Upload failed (HTTP ${xhr.status})`));
+          }
+        });
+
+        xhr.addEventListener('error', () => reject(new Error('Network error while uploading')));
+        xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
+        xhr.addEventListener('timeout', () => reject(new Error('Upload timed out')));
+
+        xhr.send(form);
       });
-
-      const { signedUrl, key, contentType: signedContentType, corsSetup } = data;
-      const putContentType = signedContentType || file.type || 'application/octet-stream';
-
-      const runXhr = (opts) =>
-        new Promise((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhrRef.current = xhr;
-          xhr.timeout = 0;
-
-          xhr.upload.addEventListener('progress', (event) => {
-            if (event.lengthComputable && event.total > 0) {
-              const raw = (event.loaded / event.total) * 100;
-              const capped = Math.min(99, Math.round(raw));
-              setUploadProgress(capped);
-              setUploadPhase(event.loaded >= event.total ? 'finishing' : 'sending');
-            }
-          });
-
-          xhr.addEventListener('loadstart', () => {
-            setUploadPhase('sending');
-          });
-
-          xhr.addEventListener('load', () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              setUploadProgress(100);
-              setUploadPhase('done');
-              resolve();
-            } else {
-              reject(new Error(opts.label + xhr.status));
-            }
-          });
-
-          xhr.addEventListener('error', () => reject(new Error(opts.label + 'network')));
-          xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
-          xhr.addEventListener('timeout', () => reject(new Error(opts.label + 'timeout')));
-
-          opts.openSend(xhr);
-        });
-
-      try {
-        await runXhr({
-          label: 'direct:',
-          openSend: (xhr) => {
-            xhr.open('PUT', signedUrl);
-            xhr.setRequestHeader('Content-Type', putContentType);
-            xhr.send(file);
-          },
-        });
-      } catch (directErr) {
-        if (directErr.message === 'Upload cancelled') throw directErr;
-        const corsDetails = corsSetupError || corsSetup?.error;
-        throw new Error(
-          corsDetails
-            ? `Direct upload blocked by R2 CORS: ${corsDetails}`
-            : 'Direct upload to storage failed. Please check R2 CORS and try again.'
-        );
-      }
 
       setUploadStatus('done');
       onR2Upload(index, key, file.name);
@@ -413,7 +399,7 @@ export default function VideoInput({
                 />
               </div>
               <div className={styles.uploadTitle}>Click to select a video file</div>
-              <div className={styles.uploadHint}>MP4, WebM, OGG, MOV, AVI, MKV (max 5GB)</div>
+              <div className={styles.uploadHint}>MP4, WebM, OGG, MOV, AVI, MKV (max {uploadMaxLabel})</div>
             </div>
           )}
 

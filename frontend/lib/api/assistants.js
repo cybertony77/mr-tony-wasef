@@ -42,20 +42,15 @@ const assistantsApi = {
     return response.data;
   },
 
-  // Check if username exists
-  checkUsernameExists: async (username) => {
-    try {
-      // Get all assistants and check if username exists (using legacy endpoint)
-      const response = await apiClient.get('/api/auth/assistants');
-      
-      // Handle both array response (legacy) and paginated response
-      const assistants = Array.isArray(response.data) ? response.data : (response.data?.data || []);
-      const exists = assistants.some(assistant => assistant.id === username);
-      
-      return { exists };
-    } catch (error) {
-      throw error;
+  // Check if username exists (lightweight — does not require admin list access)
+  checkUsernameExists: async (username, excludeId = null) => {
+    const params = new URLSearchParams();
+    params.set('username', String(username));
+    if (excludeId != null && String(excludeId).trim() !== '') {
+      params.set('exclude', String(excludeId));
     }
+    const response = await apiClient.get(`/api/auth/check-username?${params.toString()}`);
+    return response.data;
   },
 
   // Create new assistant
@@ -121,11 +116,11 @@ export const useAssistant = (id) => {
   });
 };
 
-export const useCheckUsername = (username) => {
+export const useCheckUsername = (username, excludeId = null) => {
   return useQuery({
-    queryKey: [...assistantKeys.all, 'check-username', username],
-    queryFn: () => assistantsApi.checkUsernameExists(username),
-    enabled: !!username && username.length > 0,
+    queryKey: [...assistantKeys.all, 'check-username', username, excludeId ?? ''],
+    queryFn: () => assistantsApi.checkUsernameExists(username, excludeId),
+    enabled: !!username && String(username).length > 0,
     staleTime: 0, // Always fetch fresh data for username checks
     refetchOnMount: true, // Always refetch when component mounts
     refetchOnWindowFocus: false, // Don't refetch on window focus for username checks

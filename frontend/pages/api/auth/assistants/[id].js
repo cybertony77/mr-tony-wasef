@@ -92,8 +92,16 @@ export default async function handler(req, res) {
           update.email = email.trim();
         }
       }
-      if (role !== undefined && role !== null && role.trim() !== '') {
-        update.role = role;
+      if (role !== undefined && role !== null && String(role).trim() !== '') {
+        const nextRole = String(role).trim();
+        if (nextRole === 'developer') {
+          if (admin.role !== 'developer') {
+            return res.status(403).json({ error: 'Forbidden' });
+          }
+        } else if (nextRole !== 'assistant' && nextRole !== 'admin') {
+          return res.status(400).json({ error: 'Invalid role. Allowed: assistant, admin' });
+        }
+        update.role = nextRole;
       }
       if (password !== undefined && password !== null && password.trim() !== '') {
         update.password = await bcrypt.hash(password, 10);

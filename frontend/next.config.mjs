@@ -41,13 +41,30 @@ const nextConfig = {
   },
   async headers() {
     return [
-      // Global headers
+      // Global security headers
       {
         source: '/(.*)',
         headers: [
           {
             key: 'Permissions-Policy',
-            value: 'camera=(self)', // allow camera for same-origin
+            value: 'camera=(self)',
+          },
+          {
+            key: 'X-Content-Type-Options',
+            value: 'nosniff',
+          },
+          {
+            key: 'Referrer-Policy',
+            value: 'strict-origin-when-cross-origin',
+          },
+          {
+            key: 'X-Frame-Options',
+            value: 'SAMEORIGIN',
+          },
+          {
+            key: 'Content-Security-Policy',
+            value:
+              "frame-ancestors 'self'; base-uri 'self'; object-src 'none'",
           },
         ],
       },

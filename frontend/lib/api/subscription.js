@@ -1,61 +1,74 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../axios';
 
-// Query keys for subscription
 export const subscriptionKeys = {
   all: ['subscription'],
   detail: () => [...subscriptionKeys.all, 'detail'],
+  status: () => [...subscriptionKeys.all, 'status'],
 };
 
-// API functions
 const subscriptionApi = {
-  // Get subscription
+  /** Full record — developer only */
   get: async () => {
     const response = await apiClient.get('/api/subscription');
     return response.data;
   },
 
-  // Create subscription
+  /** Timer/warning fields only — admin, assistant, developer */
+  getStatus: async () => {
+    const response = await apiClient.get('/api/subscription/status');
+    return response.data;
+  },
+
   create: async (subscriptionData) => {
     const response = await apiClient.post('/api/subscription', subscriptionData);
     return response.data;
   },
 
-  // Cancel subscription (developer only)
   cancel: async () => {
     const response = await apiClient.put('/api/subscription');
     return response.data;
   },
 
-  // Auto-expire subscription (any authenticated user)
   expire: async () => {
     const response = await apiClient.patch('/api/subscription');
     return response.data;
   },
 };
 
-// React Query hooks
+/** Developer dashboard — full subscription document */
 export const useSubscription = (options = {}) => {
   return useQuery({
     queryKey: subscriptionKeys.detail(),
     queryFn: () => subscriptionApi.get(),
-    refetchInterval: false, // Manual control - no auto-refresh (handled in _app.js)
+    refetchInterval: false,
     refetchIntervalInBackground: false,
-    staleTime: 10 * 60 * 1000, // Consider data stale after 10 minutes
+    staleTime: 10 * 60 * 1000,
     retry: 2,
     retryDelay: 1000,
     ...options,
   });
 };
 
-// Mutations
+/** UserMenu / _app — remaining time only (admin/assistant/developer) */
+export const useSubscriptionStatus = (options = {}) => {
+  return useQuery({
+    queryKey: subscriptionKeys.status(),
+    queryFn: () => subscriptionApi.getStatus(),
+    refetchInterval: false,
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+    ...options,
+  });
+};
+
 export const useCreateSubscription = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (subscriptionData) => subscriptionApi.create(subscriptionData),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: subscriptionKeys.detail() });
+      queryClient.invalidateQueries({ queryKey: subscriptionKeys.all });
     },
   });
 };
@@ -66,7 +79,7 @@ export const useCancelSubscription = () => {
   return useMutation({
     mutationFn: () => subscriptionApi.cancel(),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: subscriptionKeys.detail() });
+      queryClient.invalidateQueries({ queryKey: subscriptionKeys.all });
     },
   });
 };
@@ -77,7 +90,7 @@ export const useExpireSubscription = () => {
   return useMutation({
     mutationFn: () => subscriptionApi.expire(),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: subscriptionKeys.detail() });
+      queryClient.invalidateQueries({ queryKey: subscriptionKeys.all });
     },
   });
 };

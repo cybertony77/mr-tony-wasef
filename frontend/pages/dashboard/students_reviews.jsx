@@ -693,7 +693,7 @@ export default function StudentsReviewsPage() {
           <Title href="/dashboard">
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <Image src="/testimonials2.svg" alt="" width={32} height={32} />
-              Students Reviews
+              Manage Students Reviews
             </div>
           </Title>
           <div className={`${styles.alert} ${styles.alertError}`}>
@@ -713,7 +713,7 @@ export default function StudentsReviewsPage() {
         <Title href="/dashboard" style={{ justifyContent: 'space-between', gap: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <Image src="/testimonials2.svg" alt="" width={32} height={32} />
-            Students Reviews
+            Manage Students Reviews
           </div>
         </Title>
 
@@ -764,7 +764,7 @@ export default function StudentsReviewsPage() {
         <div className={styles.card}>
           <div className={styles.cardHeader}>
             <div>
-              <h2>Students Reviews</h2>
+              <h2>Manage Students Reviews</h2>
               <p>Manage students reviews and star ratings</p>
             </div>
             {canManage ? (
