@@ -174,7 +174,7 @@ export default function DesmosQuestionAssist({
   const desmosConfigured = isFeatureEnabled(systemConfig?.desmos_configured);
   const questionWantsDesmos = isDesmosEnabledForQuestion(useDesmos);
   // Both required: use_desmos=true AND SYSTEM_DESMOS_INTEGRATIONS=true (plus server key).
-  // API key is never sent to the client — calculator loads via /api/desmos/calculator.js
+  // API key is never sent to the client — calculator loads via /api/desmos/calculator
   const show = standalone
     ? featureOn && desmosConfigured
     : questionWantsDesmos && featureOn && desmosConfigured;

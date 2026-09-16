@@ -47,19 +47,69 @@ export function attendedInCenter(lessonData) {
 }
 
 /**
+ * Parse an Egypt-formatted stored date into YYYY-MM-DD.
+ * Supports "DD/MM/YYYY", "DD-MM-YYYY", "DD/MM/YYYY at 05:30 PM",
+ * "DD/MM/YYYY in Center Name", ISO strings and Date instances.
+ */
+export function parseEgyptDateLikeToYmd(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date) return toEgyptYmd(value);
+  const s = String(value).trim();
+  if (!s) return null;
+
+  const dmy = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+  if (dmy) {
+    const dd = String(dmy[1]).padStart(2, '0');
+    const mm = String(dmy[2]).padStart(2, '0');
+    return `${dmy[3]}-${mm}-${dd}`;
+  }
+
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) {
+    // Bare calendar date is already an Egypt civil day; timestamps need conversion.
+    if (s.length <= 10) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    return toEgyptYmd(new Date(s));
+  }
+
+  const ms = Date.parse(s);
+  if (Number.isNaN(ms)) return null;
+  return toEgyptYmd(new Date(ms));
+}
+
+/**
  * Parse student lesson lastAttendance into Egypt YYYY-MM-DD.
  * Supports "DD/MM/YYYY", "DD-MM-YYYY", and "DD/MM/YYYY in Center Name".
  */
 export function parseLastAttendanceYmd(lessonData) {
   if (!lessonData || typeof lessonData !== 'object') return null;
-  const la = lessonData.lastAttendance;
-  if (!la || typeof la !== 'string') return null;
-  const m = la.trim().match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
-  if (!m) return null;
-  const dd = String(m[1]).padStart(2, '0');
-  const mm = String(m[2]).padStart(2, '0');
-  const yyyy = m[3];
-  return `${yyyy}-${mm}-${dd}`;
+  return parseEgyptDateLikeToYmd(lessonData.lastAttendance);
+}
+
+/**
+ * Egypt day the student attended this lesson in a center.
+ * `attendanceDate` is stored as "DD/MM/YYYY"; `lastAttendance` is the fallback.
+ */
+export function getAttendanceStartYmd(lessonData) {
+  if (!lessonData || typeof lessonData !== 'object') return null;
+  return (
+    parseEgyptDateLikeToYmd(lessonData.attendanceDate) ||
+    parseLastAttendanceYmd(lessonData)
+  );
+}
+
+/**
+ * Start day of a free "number_of_days" window (Egypt civil day).
+ * - free_if_attended_in_center → the center attendance day
+ * - free → the day the student first opened the video
+ */
+export function getFreeDaysStartYmd(session, studentEntry, lessonData = null) {
+  if (session?.payment_state === 'free_if_attended_in_center') {
+    const attendedYmd = getAttendanceStartYmd(lessonData);
+    if (attendedYmd) return attendedYmd;
+  }
+  const startedAt = studentEntry?.first_opened_at || studentEntry?.first_viewed_at;
+  if (!startedAt) return null;
+  return toEgyptYmd(new Date(startedAt));
 }
 
 /**
@@ -144,12 +194,13 @@ export function getFreeViewsRemaining(session, studentEntry, videoPartKey = null
  * Whether free-session viewing access is still valid given session config + student entry.
  * Always uses the *current* session viewing_limit_value / type (so admin increases reopen access).
  *
- * number_of_days (free / free_if_attended_in_center):
- * - The window starts when the student first opens the video (Africa/Cairo).
- * - N Cairo calendar days: first opened 08/11 + 10 days → open through 17/11.
+ * number_of_days:
+ * - free → window starts when the student first opens the video (Africa/Cairo).
+ * - free_if_attended_in_center → window starts on the center attendance day.
+ * - N Cairo calendar days: start 08/11 + 10 days → open through 17/11.
  *
  * number_of_views:
- * - Countdown/usage starts from first open (first_opened_at)
+ * - Counted per playlist slot (videoPartKey); each video gets the full limit.
  *
  * When invalid/expired, session should fall back to paid (require VVC).
  */
@@ -174,10 +225,9 @@ export function isFreeViewingAccessValid(session, studentEntry, lessonData = nul
 
   if (type === 'number_of_days') {
     if (limit <= 0) return false;
-    const startedAt = studentEntry?.first_opened_at || studentEntry?.first_viewed_at;
-    if (!startedAt) return true;
-    const startedYmd = toEgyptYmd(new Date(startedAt));
-    if (!startedYmd) return false;
+    const startedYmd = getFreeDaysStartYmd(session, studentEntry, lessonData);
+    // Window has not started yet (never opened / no attendance recorded)
+    if (!startedYmd) return true;
     // Egypt/Cairo civil days — same window as VVC/VHC: N days starting first open
     // (valid while today < firstYmd + N). Example: open 08/11 with 10 days → through 17/11.
     const expiresYmd = addDaysEgyptYmd(startedYmd, limit);
@@ -205,9 +255,15 @@ export function syncFreeViewingEntryWithSession(session, entry, lessonData = nul
 
   if (type === 'number_of_views' && Number.isFinite(limit)) {
     const used = Number(entry.views_used ?? 0) || 0;
-    const remaining = Math.max(0, limit - used);
     next.views_used = used;
-    next.views_remaining = remaining;
+    // Per-part counters are authoritative: the session stays open while any
+    // playlist slot still has views, even when the session total is high.
+    const partUsed = Object.values(
+      entry.part_views && typeof entry.part_views === 'object' ? entry.part_views : {}
+    ).map((v) => Number(v) || 0);
+    const lowestUsed = partUsed.length > 0 ? Math.min(...partUsed) : used;
+    const remaining = Math.max(0, limit - lowestUsed);
+    next.views_remaining = Math.max(0, limit - used);
     next.free_access_expired = remaining <= 0;
     if (remaining > 0) {
       delete next.expired_at;
@@ -229,18 +285,23 @@ export function syncFreeViewingEntryWithSession(session, entry, lessonData = nul
 
 /**
  * True when free viewing period ended and student must use VVC (paid path).
- * For number_of_days: expires from the student's first video open.
+ * For number_of_days: from the attendance day (free_if_attended_in_center)
+ * or the student's first video open (free).
  */
-export function isFreeViewingExpired(session, studentEntry, lessonData = null) {
+export function isFreeViewingExpired(session, studentEntry, lessonData = null, videoPartKey = null) {
   if (!needsViewingSettings(session?.payment_state)) return false;
   if (!VIEWING_LIMIT_TYPES.includes(session?.viewing_limit_type)) return false;
   const limit = Number(session?.viewing_limit_value);
   if (!Number.isNaN(limit) && limit <= 0) return true;
 
   if (session?.viewing_limit_type === 'number_of_days') {
-    const startedAt = studentEntry?.first_opened_at || studentEntry?.first_viewed_at;
-    if (!startedAt) return false;
+    if (!getFreeDaysStartYmd(session, studentEntry, lessonData)) return false;
     return !isFreeViewingAccessValid(session, studentEntry, lessonData);
+  }
+
+  if (videoPartKey) {
+    if (!studentEntry?.first_opened_at) return false;
+    return !isFreeViewingAccessValid(session, studentEntry, lessonData, videoPartKey);
   }
 
   const started = studentEntry?.first_opened_at || studentEntry?.first_viewed_at;

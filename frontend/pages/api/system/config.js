@@ -142,7 +142,7 @@ export default async function handler(req, res) {
       google_meet_integrations: googleMeetIntegrations,
       google_join_meeting: googleJoinMeeting,
       desmos_integrations: desmosIntegrations,
-      // Never expose DESMOS_API_KEY — client loads calculator via /api/desmos/calculator.js
+      // Never expose DESMOS_API_KEY — client loads calculator via /api/desmos/calculator
       desmos_configured: desmosIntegrations && desmosApiKeyPresent,
       math_reference_sheet: mathReferenceSheet,
       payment_system: paymentSystem,

@@ -15,15 +15,8 @@ import ZoomVideoPlayer from '../../components/ZoomVideoPlayer';
 import GoogleMeetVideoPlayer from '../../components/GoogleMeetVideoPlayer';
 import { TextInput, ActionIcon, useMantineTheme } from '@mantine/core';
 import { IconSearch, IconArrowRight } from '@tabler/icons-react';
-import {
-  FREE_ONLINE_SESSION_PAYMENT_STATES,
-  isFreeViewingAccessValid,
-  isFreeViewingExpired,
-  attendedInCenter,
-} from '../../lib/onlineSessionViewing';
+import { FREE_ONLINE_SESSION_PAYMENT_STATES } from '../../lib/onlineSessionViewing';
 import { getStudentLesson } from '../../lib/studentLessons';
-import { isDeadlinePassedEgypt } from '../../lib/deadlineTimeEgypt';
-import { isCodeNumberOfDaysValid } from '../../lib/codeNumberOfDays';
 import CodePopupMessage from '../../components/CodePopupMessage';
 import VideoUnlockPaymentChoiceModal from '../../components/VideoUnlockPaymentChoiceModal';
 import UnlockSuccessToast from '../../components/UnlockSuccessToast';
@@ -33,11 +26,10 @@ import {
   resolveVerificationCodeError,
 } from '../../lib/verificationCodeMessages';
 import {
-  getVideoPartViewsRemaining,
-  getVideoAccessBracketLabel,
+  getVideoPartAccessState,
   isAccessBracketWarning,
-  isVideoPartAccessPlayable,
-} from '../../lib/videoViewsDisplay';
+  LOCK_REASON,
+} from '../../lib/videoAccessState';
 import { makeVideoPartKey } from '../../lib/videoPartViews';
 import { buildPlayerTitle, withSelectedVideoMeta } from '../../lib/videoPlayerTitle';
 import {
@@ -63,6 +55,30 @@ function unlockInfoFromVvcResponse(data) {
     part_views:
       data.part_views && typeof data.part_views === 'object' ? data.part_views : {},
   };
+}
+
+/** Message shown in the VVC popup when a locked slot is clicked. */
+function buildLockHint(session, access, unlockedInfo) {
+  const isFree = FREE_ONLINE_SESSION_PAYMENT_STATES.includes(session?.payment_state);
+  switch (access?.reason) {
+    case LOCK_REASON.NO_VIEWS:
+      return isFree && access.source == null && !unlockedInfo
+        ? getVerificationCodeMessage('vvc', CODE_ERROR.FREE_VIEWING_ENDED)
+        : getVerificationCodeMessage('vvc', CODE_ERROR.NO_VIEWS_REMAINING);
+    case LOCK_REASON.DAYS_EXPIRED:
+      return isFree && !unlockedInfo
+        ? getVerificationCodeMessage('vvc', CODE_ERROR.FREE_VIEWING_ENDED)
+        : getVerificationCodeMessage('vvc', CODE_ERROR.DAYS_EXPIRED, {
+            code_settings: 'number_of_days',
+          });
+    case LOCK_REASON.DEADLINE_PASSED:
+      return getVerificationCodeMessage('vvc', CODE_ERROR.DEADLINE_EXPIRED, {
+        code_settings: 'deadline_date',
+        deadline_date: unlockedInfo?.deadline_date,
+      });
+    default:
+      return '';
+  }
 }
 
 // Input with Button Component (matching manage online system style)
@@ -413,30 +429,6 @@ export default function OnlineSessions() {
     }) || null;
   };
 
-  const isVvcUnlockValid = (unlockedInfo) => {
-    if (!unlockedInfo) return false;
-    if (unlockedInfo.code_settings === 'number_of_days') {
-      // Use live number_of_days from code (admin can extend days; window starts from first open)
-      if (unlockedInfo.access_started_at != null && unlockedInfo.number_of_days != null) {
-        return isCodeNumberOfDaysValid(unlockedInfo.access_started_at, unlockedInfo.number_of_days);
-      }
-      if (unlockedInfo.deadline_date && isDeadlinePassedEgypt(unlockedInfo.deadline_date, null)) {
-        return false;
-      }
-      return !!unlockedInfo.deadline_date;
-    }
-    if (unlockedInfo.code_settings === 'deadline_date' && unlockedInfo.deadline_date) {
-      if (isDeadlinePassedEgypt(unlockedInfo.deadline_date, null)) return false;
-    } else if (unlockedInfo.code_settings === 'number_of_views') {
-      // number_of_views on unlock info is the per-video LIMIT, not remaining
-      const limit = Number(
-        unlockedInfo.views_per_video_limit ?? unlockedInfo.number_of_views
-      );
-      if (!Number.isFinite(limit) || limit <= 0) return false;
-    }
-    return true;
-  };
-
   const getSessionUnlockEntry = (sessionId) => {
     const list = studentData?.online_sessions;
     if (!Array.isArray(list) || !sessionId) return null;
@@ -448,94 +440,26 @@ export default function OnlineSessions() {
     );
   };
 
-  const isVideoUnlocked = (session) => {
+  // One resolver drives the button colour/icon, the bracket text and the click handler.
+  const getPartAccess = (session, videoId, videoIndex) => {
     const sessionId = session._id?.toString() || session._id;
-    const unlockedInfo = unlockedSessions.get(sessionId);
-    const lessonData = getStudentLesson(studentData?.lessons, session.lesson);
-    const redeemed = getSessionUnlockEntry(sessionId);
-
-    // Session-credit unlock (works for paid and free / free_if_* when credit was used)
-    if (redeemed?.paid_with_session) {
-      return true;
-    }
-
-    // VVC already on student record (covers Map lag after unlock / multi-video list)
-    if (redeemed?.vvc_id && (!unlockedInfo || isVvcUnlockValid(unlockedInfo))) {
-      return true;
-    }
-
-    if (session.payment_state === 'free' || session.payment_state === 'free_if_attended_in_center') {
-      const entry = getFreeViewingEntry(sessionId);
-      const freeExpired = isFreeViewingExpired(session, entry, lessonData);
-
-      if (session.payment_state === 'free_if_attended_in_center' && !freeExpired) {
-        // Prefer live student lesson data: attended=true + lastAttendanceCenter not Online
-        let attended = attendedInCenter(lessonData);
-        // Fallback to API flag if lesson data not loaded yet
-        if (!attended && lessonData == null && session._attendedInCenter === true) {
-          attended = true;
-        }
-        if (!attended) return false;
-      }
-
-      // After free viewing expires → paid path: VVC unlock
-      if (isVvcUnlockValid(unlockedInfo)) {
-        return true;
-      }
-
-      // Still within free window
-      if (!freeExpired) {
-        return isFreeViewingAccessValid(session, entry, lessonData);
-      }
-
-      return false;
-    }
-
-    if (session.payment_state === 'paid') {
-      if (isVvcUnlockValid(unlockedInfo)) {
-        return true;
-      }
-      // Student already has a VVC row even if local Map not restored yet
-      if (redeemed?.vvc_id) {
-        return true;
-      }
-      return false;
-    }
-    return false;
-  };
-
-  const isVideoPartPlayable = (session, videoId, videoIndex) => {
-    const sessionId = session._id?.toString() || session._id;
-    const unlockedInfo = unlockedSessions.get(sessionId);
-    return isVideoPartAccessPlayable({
+    return getVideoPartAccessState({
       session,
       sessionId,
       videoId,
       videoIndex,
-      studentOnlineEntries: studentData?.online_sessions || [],
-      studentHomeworkEntries: [],
-      unlockedInfo,
-      sessionUnlocked: isVideoUnlocked(session),
+      studentEntries: studentData?.online_sessions || [],
+      lessonData: getStudentLesson(studentData?.lessons, session.lesson),
+      unlockedInfo: unlockedSessions.get(sessionId),
+      attendedInCenterFallback: session._attendedInCenter === true,
     });
   };
 
-  const getVideoStatusBracket = (session, videoId, videoIndex) => {
-    const sessionId = session._id?.toString() || session._id;
-    const unlockedInfo = unlockedSessions.get(sessionId);
-    const sessionUnlocked = isVideoUnlocked(session);
-    const playable = isVideoPartPlayable(session, videoId, videoIndex);
-    return getVideoAccessBracketLabel({
-      session,
-      sessionId,
-      videoId,
-      videoIndex,
-      studentOnlineEntries: studentData?.online_sessions || [],
-      studentHomeworkEntries: [],
-      unlockedInfo,
-      isUnlocked: playable,
-      hasSessionAccess: sessionUnlocked,
-    });
-  };
+  const isVideoPartPlayable = (session, videoId, videoIndex) =>
+    getPartAccess(session, videoId, videoIndex).unlocked;
+
+  const getVideoStatusBracket = (session, videoId, videoIndex) =>
+    getPartAccess(session, videoId, videoIndex).label;
 
   // Handle VVC submission
   const handleVVCSubmit = async () => {
@@ -607,22 +531,27 @@ export default function OnlineSessions() {
           }, 1500);
         }
 
-        const canPlayPart = isVideoPartAccessPlayable({
+        // A re-used code whose views for this slot are already spent must not open it
+        const unlockAccess = getVideoPartAccessState({
           session: pendingVideo.session,
           sessionId,
           videoId: pendingVideo.videoId,
           videoIndex: pendingVideo.videoIndex,
-          studentOnlineEntries: serverEntry
-            ? [serverEntry]
-            : [{ video_id: sessionId, vvc_id: response.data.vvc_id, ...(unlockInfo.part_views ? { part_views: unlockInfo.part_views, views_per_video_limit: unlockInfo.views_per_video_limit } : {}) }],
-          studentHomeworkEntries: [],
+          studentEntries: [
+            serverEntry || {
+              video_id: sessionId,
+              vvc_id: response.data.vvc_id,
+              part_views: unlockInfo.part_views || {},
+              views_per_video_limit: unlockInfo.views_per_video_limit,
+            },
+          ],
+          lessonData: getStudentLesson(studentData?.lessons, pendingVideo.session.lesson),
           unlockedInfo: unlockInfo,
-          sessionUnlocked: true,
         });
 
-        if (!canPlayPart) {
-          // Same exhausted code / expired access — keep popup open so they can try another VVC
-          setVvcError(getVerificationCodeMessage('vvc', CODE_ERROR.NO_VIEWS_REMAINING));
+        if (!unlockAccess.unlocked) {
+          // Exhausted / expired code — keep the popup open so another VVC can be tried
+          setVvcError(buildLockHint(pendingVideo.session, unlockAccess, unlockInfo));
           return;
         }
 
@@ -634,7 +563,7 @@ export default function OnlineSessions() {
             videoId: pendingVideo.videoId,
             videoIndex: pendingVideo.videoIndex,
             videoType: pendingVideo.videoType,
-            extra: unlockInfo,
+            extra: { ...unlockInfo, access_source: unlockAccess.source },
           })
         );
         setVideoPopupOpen(true);
@@ -872,12 +801,10 @@ export default function OnlineSessions() {
   const tryDecrementFreeViewsOnWatchProgress = useCallback(async () => {
     const v = selectedVideoRef.current;
     if (!v?._id || !profile?.id || !studentId) return;
+    if (v.access_source !== 'free') return; // free views only when free access opened it
     if (!FREE_ONLINE_SESSION_PAYMENT_STATES.includes(v.payment_state)) return;
     if (v.viewing_limit_type !== 'number_of_views') return;
-    if (v.vvc_id) return; // unlocked via VVC — don't consume free views
     const sessionId = typeof v._id === 'string' ? v._id : v._id.toString();
-    const redeemed = getSessionUnlockEntry(sessionId);
-    if (redeemed?.paid_with_session) return; // unlocked via session credit
     if (freeViewsDecrementDoneRef.current) return;
     freeViewsDecrementDoneRef.current = true;
     try {
@@ -918,6 +845,7 @@ export default function OnlineSessions() {
     const sessionId = typeof v._id === 'string' ? v._id : v._id.toString();
     const redeemed = getSessionUnlockEntry(sessionId);
     if (!redeemed?.paid_with_session) return;
+    if (v.access_source && v.access_source !== 'credit') return;
     sessionUnlockViewsDecrementDoneRef.current = true;
     try {
       const decrementResponse = await apiClient.post(`/api/students/${profile.id}/watch-video`, {
@@ -974,15 +902,15 @@ export default function OnlineSessions() {
     const videoType = session[`video_type_${videoIndex}`] || 'youtube';
     const sessionId = session._id?.toString() || session._id;
     const freeEntry = getFreeViewingEntry(sessionId);
-    const partPlayable = isVideoPartPlayable(session, videoId, videoIndex);
+    const access = getPartAccess(session, videoId, videoIndex);
 
     // Check if this video part can be played
-    if (partPlayable) {
+    if (access.unlocked) {
       // Video is unlocked - check deadline date (views decrement after >=10% watch via player)
       let unlockedInfo = unlockedSessions.get(sessionId);
 
       // Sync number_of_days from server so admin day extensions apply automatically
-      if (unlockedInfo?.vvc_id && unlockedInfo.code_settings === 'number_of_days') {
+      if (access.source === 'code' && unlockedInfo?.vvc_id && unlockedInfo.code_settings === 'number_of_days') {
         try {
           const syncRes = await apiClient.post('/api/vvc/get-by-id', {
             vvc_id: unlockedInfo.vvc_id,
@@ -1009,38 +937,18 @@ export default function OnlineSessions() {
         } catch (err) {
           console.error('Failed to sync VVC number_of_days:', err);
         }
-      } else if (unlockedInfo) {
-        // Fixed deadline_date expiration (Africa/Cairo)
-        if (unlockedInfo.code_settings === 'deadline_date' && unlockedInfo.deadline_date) {
-          if (isDeadlinePassedEgypt(unlockedInfo.deadline_date, null)) {
-            setVvcError(getVerificationCodeMessage('vvc', CODE_ERROR.DEADLINE_EXPIRED, {
-              code_settings: 'deadline_date',
-              deadline_date: unlockedInfo.deadline_date,
-            }));
-            const newUnlocked = new Map(unlockedSessions);
-            newUnlocked.delete(sessionId);
-            setUnlockedSessions(newUnlocked);
-            return;
-          }
-        }
       }
 
-      // Free / free-if-attended: continue free access (days/views start on first open)
-      if (
-        FREE_ONLINE_SESSION_PAYMENT_STATES.includes(session.payment_state) &&
-        profile?.id &&
-        !unlockedInfo &&
-        isFreeViewingAccessValid(
-          session,
-          freeEntry,
-          getStudentLesson(studentData?.lessons, session.lesson)
-        )
-      ) {
+      // Free / free-if-attended: start (or continue) the free window on first open
+      if (access.source === 'free' && profile?.id) {
         try {
           const startRes = await apiClient.post(`/api/students/${profile.id}/watch-video`, {
             session_id: sessionId,
             action: 'start_free_access',
             payment_state: session.payment_state,
+            video_id: videoId,
+            video_index: videoIndex,
+            video_part_key: makeVideoPartKey(videoId, videoIndex),
           });
           if (startRes.data?.entry) {
             applyFreeViewingEntryToCache(sessionId, startRes.data.entry);
@@ -1066,20 +974,26 @@ export default function OnlineSessions() {
         }
       }
       
-      // Video is unlocked - open directly
+      // Video is unlocked - open directly.
+      // Only tag the code when the code is what grants access, so a watch never
+      // burns code views while free / credit access is still valid.
+      const codeMeta =
+        access.source === 'code'
+          ? {
+              vvc_id: unlockedInfo?.vvc_id,
+              code_settings: unlockedInfo?.code_settings,
+              number_of_views: unlockedInfo?.number_of_views,
+              number_of_days: unlockedInfo?.number_of_days,
+              access_started_at: unlockedInfo?.access_started_at,
+              deadline_date: unlockedInfo?.deadline_date,
+            }
+          : {};
       setSelectedVideo(
         withSelectedVideoMeta(session, {
           videoId,
           videoIndex,
           videoType,
-          extra: {
-            vvc_id: unlockedInfo?.vvc_id,
-            code_settings: unlockedInfo?.code_settings,
-            number_of_views: unlockedInfo?.number_of_views,
-            number_of_days: unlockedInfo?.number_of_days,
-            access_started_at: unlockedInfo?.access_started_at,
-            deadline_date: unlockedInfo?.deadline_date,
-          },
+          extra: { ...codeMeta, access_source: access.source },
         })
       );
       setVideoPopupOpen(true);
@@ -1089,51 +1003,10 @@ export default function OnlineSessions() {
       freeViewsDecrementDoneRef.current = false;
       attendancePostedRef.current = false;
     } else {
-      // Locked / views-days-deadline exhausted → same unlock flow as a new locked video
-      // (VVC / payment choice). Do not auto-open even if an old VVC still exists on the record.
+      // Locked, or views / days / deadline exhausted → same unlock flow as a video that
+      // was never opened. An old VVC on the record must never re-open it by itself.
       const unlockedInfo = unlockedSessions.get(sessionId);
-      let lockHint = '';
-      if (isVideoUnlocked(session) || unlockedInfo) {
-        const remaining = getVideoPartViewsRemaining({
-          session,
-          sessionId,
-          videoId,
-          videoIndex,
-          studentOnlineEntries: studentData?.online_sessions || [],
-          studentHomeworkEntries: [],
-          unlockedInfo,
-        });
-        if (remaining !== null && remaining <= 0) {
-          lockHint = getVerificationCodeMessage('vvc', CODE_ERROR.NO_VIEWS_REMAINING);
-        } else if (unlockedInfo?.code_settings === 'number_of_days') {
-          lockHint = getVerificationCodeMessage('vvc', CODE_ERROR.DAYS_EXPIRED, {
-            code_settings: 'number_of_days',
-          });
-        } else if (unlockedInfo?.code_settings === 'deadline_date' && unlockedInfo.deadline_date) {
-          lockHint = getVerificationCodeMessage('vvc', CODE_ERROR.DEADLINE_EXPIRED, {
-            code_settings: 'deadline_date',
-            deadline_date: unlockedInfo.deadline_date,
-          });
-        } else if (
-          FREE_ONLINE_SESSION_PAYMENT_STATES.includes(session.payment_state) &&
-          isFreeViewingExpired(
-            session,
-            freeEntry,
-            getStudentLesson(studentData?.lessons, session.lesson)
-          )
-        ) {
-          lockHint = getVerificationCodeMessage('vvc', CODE_ERROR.FREE_VIEWING_ENDED);
-        }
-      } else if (
-        FREE_ONLINE_SESSION_PAYMENT_STATES.includes(session.payment_state) &&
-        isFreeViewingExpired(
-          session,
-          freeEntry,
-          getStudentLesson(studentData?.lessons, session.lesson)
-        )
-      ) {
-        lockHint = getVerificationCodeMessage('vvc', CODE_ERROR.FREE_VIEWING_ENDED);
-      }
+      const lockHint = buildLockHint(session, access, unlockedInfo);
 
       setPendingVideo({ session, videoId, videoIndex, videoType });
       if (isPaymentSystemEnabled) {
@@ -1463,6 +1336,7 @@ export default function OnlineSessions() {
                   videoId: pending.videoId,
                   videoIndex: pending.videoIndex,
                   videoType,
+                  extra: { access_source: 'credit' },
                 })
               );
               setVideoPopupOpen(true);

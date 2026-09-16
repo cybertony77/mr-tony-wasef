@@ -284,10 +284,17 @@ export default async function handler(req, res) {
     const existingSessionIndex = onlineSessions.findIndex((s) => sameId(s.video_id, session_id));
     const isNewStudentUnlock = existingSessionIndex === -1;
 
+    // Code settings are mirrored onto the student entry so the dashboard can show the
+    // remaining views / days / deadline even before the code details are re-fetched.
+    const latestVvc = await db.collection('VVC').findOne({ _id: vvcRecord._id });
     const newSessionEntry = {
       video_id: sessionIdStr,
       vvc_id: codeIdStr,
       date: formatDate(new Date()),
+      code_settings: codeSettings,
+      number_of_days: latestVvc?.number_of_days ?? null,
+      access_started_at: latestVvc?.access_started_at || null,
+      deadline_date: codeSettings === 'deadline_date' ? latestVvc?.deadline_date || null : null,
       ...(codeSettings === 'number_of_views'
         ? {
             views_per_video_limit: Number(vvcRecord.number_of_views) || 0,

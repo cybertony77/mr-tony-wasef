@@ -1,6 +1,6 @@
 const DESMOS_API_VERSION = 'v1.12';
 /** Same-origin proxy — DESMOS_API_KEY stays on the server */
-const DESMOS_PROXY_SRC = '/api/desmos/calculator.js';
+const DESMOS_PROXY_SRC = '/api/desmos/calculator';
 
 let loadPromise = null;
 let loadedViaProxy = false;

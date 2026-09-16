@@ -7,12 +7,12 @@ import {
   FREE_ONLINE_SESSION_PAYMENT_STATES,
   isFreeViewingAccessValid,
   syncFreeViewingEntryWithSession,
-  getFreeViewsRemaining,
   attendedInCenter,
 } from '../../../../lib/onlineSessionViewing';
 import {
   makeVideoPartKey,
   normalizePartViews,
+  resolvePartViewKeys,
   resolveViewsPerVideoLimit,
 } from '../../../../lib/videoPartViews';
 import { formatEgyptDateTime, formatEgyptAttendance } from '../../../../lib/egyptDateTime';
@@ -101,6 +101,8 @@ export default async function handler(req, res) {
 
     const { session_id, action, watched_percent, video_part_key, video_id, video_index } = req.body; // action: 'view' | 'finish' | 'start_free_access' | 'decrement_free_views' | 'decrement_session_unlock_views'
     const partKey = makeVideoPartKey(video_part_key || video_id, video_index);
+    // Older records stored usage under the raw video id
+    const partKeys = [partKey, ...resolvePartViewKeys(video_id, video_index)];
 
     if (!session_id) {
       return res.status(400).json({ error: 'Session ID is required' });
@@ -199,7 +201,16 @@ export default async function handler(req, res) {
         ? syncFreeViewingEntryWithSession(session, existingEntry, lessonData)
         : null;
 
-      if (!isFreeViewingAccessValid(session, syncedEntry || existingEntry, lessonData)) {
+      // Views are per playlist slot, so validate the slot the student is opening
+      const freeAccessPartKeys = video_index != null || video_id != null ? partKeys : null;
+      if (
+        !isFreeViewingAccessValid(
+          session,
+          syncedEntry || existingEntry,
+          lessonData,
+          freeAccessPartKeys
+        )
+      ) {
         // Mark expired so client treats session as paid (VVC required)
         if (syncedEntry && syncedEntry.free_access_expired !== true) {
           const expiredEntry = {
@@ -310,9 +321,17 @@ export default async function handler(req, res) {
         lessonDataForViews
       );
       const limit = Number(session.viewing_limit_value) || 0;
-      const partViews = normalizePartViews(entry.part_views);
-      const usedPart = Number(partViews[partKey]) || 0;
-      const remaining = getFreeViewsRemaining(session, entry, partKey);
+      const partViews = { ...normalizePartViews(entry.part_views) };
+      // Views are counted per playlist slot, so migrate any legacy id-keyed count
+      let usedPart = 0;
+      for (const key of partKeys) {
+        if (Object.prototype.hasOwnProperty.call(partViews, key)) {
+          usedPart = Number(partViews[key]) || 0;
+          if (key !== partKey) delete partViews[key];
+          break;
+        }
+      }
+      const remaining = Math.max(0, limit - usedPart);
 
       if (remaining <= 0 || usedPart >= limit) {
         const expiredEntry = {
@@ -366,7 +385,9 @@ export default async function handler(req, res) {
       return res.status(200).json({
         success: true,
         number_of_views: nextRemaining,
-        views_used: nextUsed,
+        views_used: partViews[partKey],
+        views_per_video_limit: limit,
+        video_part_key: partKey,
         expired: nextRemaining <= 0,
         require_vvc: nextRemaining <= 0,
         entry: updatedEntry,

@@ -16,8 +16,6 @@ import GoogleMeetVideoPlayer from '../../components/GoogleMeetVideoPlayer';
 import { TextInput, ActionIcon, useMantineTheme } from '@mantine/core';
 import { IconSearch, IconArrowRight } from '@tabler/icons-react';
 import { getStudentLesson } from '../../lib/studentLessons';
-import { isDeadlinePassedEgypt } from '../../lib/deadlineTimeEgypt';
-import { isCodeNumberOfDaysValid } from '../../lib/codeNumberOfDays';
 import CodePopupMessage from '../../components/CodePopupMessage';
 import {
   CODE_ERROR,
@@ -27,11 +25,10 @@ import {
 import VideoUnlockPaymentChoiceModal from '../../components/VideoUnlockPaymentChoiceModal';
 import UnlockSuccessToast from '../../components/UnlockSuccessToast';
 import {
-  getVideoPartViewsRemaining,
-  getVideoAccessBracketLabel,
+  getVideoPartAccessState,
   isAccessBracketWarning,
-  isVideoPartAccessPlayable,
-} from '../../lib/videoViewsDisplay';
+  LOCK_REASON,
+} from '../../lib/videoAccessState';
 import { makeVideoPartKey } from '../../lib/videoPartViews';
 import { buildPlayerTitle, withSelectedVideoMeta } from '../../lib/videoPlayerTitle';
 import {
@@ -57,6 +54,25 @@ function unlockInfoFromVhcResponse(data) {
     part_views:
       data.part_views && typeof data.part_views === 'object' ? data.part_views : {},
   };
+}
+
+/** Message shown in the VHC popup when a locked slot is clicked. */
+function buildLockHint(access, unlockedInfo) {
+  switch (access?.reason) {
+    case LOCK_REASON.NO_VIEWS:
+      return getVerificationCodeMessage('vhc', CODE_ERROR.NO_VIEWS_REMAINING);
+    case LOCK_REASON.DAYS_EXPIRED:
+      return getVerificationCodeMessage('vhc', CODE_ERROR.DAYS_EXPIRED, {
+        code_settings: 'number_of_days',
+      });
+    case LOCK_REASON.DEADLINE_PASSED:
+      return getVerificationCodeMessage('vhc', CODE_ERROR.DEADLINE_EXPIRED, {
+        code_settings: 'deadline_date',
+        deadline_date: unlockedInfo?.deadline_date,
+      });
+    default:
+      return '';
+  }
 }
 
 // Input with Button Component (matching manage online system style)
@@ -281,103 +297,44 @@ export default function HomeworksVideos() {
     return true;
   };
 
-  const isVhcUnlockValid = (unlockedInfo) => {
-    if (!unlockedInfo) return false;
-    if (unlockedInfo.code_settings === 'number_of_days') {
-      if (unlockedInfo.access_started_at != null && unlockedInfo.number_of_days != null) {
-        return isCodeNumberOfDaysValid(unlockedInfo.access_started_at, unlockedInfo.number_of_days);
-      }
-      if (unlockedInfo.deadline_date && isDeadlinePassedEgypt(unlockedInfo.deadline_date, null)) {
-        return false;
-      }
-      return !!unlockedInfo.deadline_date;
-    }
-    if (unlockedInfo.code_settings === 'deadline_date' && unlockedInfo.deadline_date) {
-      if (isDeadlinePassedEgypt(unlockedInfo.deadline_date, null)) return false;
-    } else if (unlockedInfo.code_settings === 'number_of_views') {
-      // number_of_views on unlock info is the per-video LIMIT, not remaining
-      const limit = Number(
-        unlockedInfo.views_per_video_limit ?? unlockedInfo.number_of_views
-      );
-      if (!Number.isFinite(limit) || limit <= 0) return false;
-    }
-    return true;
-  };
-
-  // Helper function to check if video is unlocked
-  const isVideoUnlocked = (session) => {
-    const sessionId = session._id?.toString() || session._id;
-    const redeemed = Array.isArray(studentData?.homeworks_videos)
-      ? studentData.homeworks_videos.find((s) => {
-          const videoIdStr = typeof s.video_id === 'string' ? s.video_id : s.video_id?.toString();
-          return videoIdStr === String(sessionId);
-        })
-      : null;
-    if (redeemed?.paid_with_session) {
-      return true;
-    }
-
-    if (session.payment_state === 'free') {
-      return true; // Free videos are always unlocked
-    } else if (session.payment_state === 'free_if_homework_done') {
-      if (session._isFreeIfHomeworkDone !== undefined) {
-        return session._hwDoneUnlocks === true;
-      }
-      const lessonName = session.lesson;
-      return checkLessonHomeworkDoneForVideo(lessonName);
-    } else if (session.payment_state === 'free_if_attended') {
-      // Check if student attended this lesson
-      // Use API flag if available, otherwise check student data
-      if (session._isFreeIfAttended !== undefined) {
-        return session._attended === true;
-      }
-      const lessonName = session.lesson;
-      return checkLessonAttendance(lessonName);
-    } else if (session.payment_state === 'paid') {
-      const unlockedInfo = unlockedSessions.get(sessionId);
-
-      // Student already redeemed VHC (covers Map lag after unlock / multi-video list)
-      if (redeemed?.vhc_id && (!unlockedInfo || isVhcUnlockValid(unlockedInfo))) {
+  /** Whether the video's free payment state currently qualifies this student. */
+  const isFreeAccessAllowed = (session) => {
+    switch (session?.payment_state) {
+      case 'free':
         return true;
-      }
-
-      return isVhcUnlockValid(unlockedInfo);
+      case 'free_if_homework_done':
+        return session._isFreeIfHomeworkDone !== undefined
+          ? session._hwDoneUnlocks === true
+          : checkLessonHomeworkDoneForVideo(session.lesson);
+      case 'free_if_attended':
+        return session._isFreeIfAttended !== undefined
+          ? session._attended === true
+          : checkLessonAttendance(session.lesson);
+      default:
+        return false;
     }
-    return false; // Default to locked
   };
 
-  const isVideoPartPlayable = (session, videoId, videoIndex) => {
+  // One resolver drives the button colour/icon, the bracket text and the click handler.
+  const getPartAccess = (session, videoId, videoIndex) => {
     const sessionId = session._id?.toString() || session._id;
-    const unlockedInfo = unlockedSessions.get(sessionId);
-    return isVideoPartAccessPlayable({
+    return getVideoPartAccessState({
       session,
       sessionId,
       videoId,
       videoIndex,
-      studentOnlineEntries: [],
-      studentHomeworkEntries: studentData?.homeworks_videos || [],
-      unlockedInfo,
-      sessionUnlocked: isVideoUnlocked(session),
+      studentEntries: studentData?.homeworks_videos || [],
+      lessonData: getStudentLesson(studentData?.lessons, session.lesson),
+      unlockedInfo: unlockedSessions.get(sessionId),
+      freeAccessAllowed: isFreeAccessAllowed(session),
     });
   };
 
-  const getVideoStatusBracket = (session, videoId, videoIndex) => {
-    const sessionId = session._id?.toString() || session._id;
-    const unlockedInfo = unlockedSessions.get(sessionId);
-    const sessionUnlocked = isVideoUnlocked(session);
-    const playable = isVideoPartPlayable(session, videoId, videoIndex);
-    return getVideoAccessBracketLabel({
-      session,
-      sessionId,
-      videoId,
-      videoIndex,
-      studentOnlineEntries: [],
-      studentHomeworkEntries: studentData?.homeworks_videos || [],
-      unlockedInfo,
-      isUnlocked: playable,
-      hasSessionAccess: sessionUnlocked,
-    });
-  };
+  const isVideoPartPlayable = (session, videoId, videoIndex) =>
+    getPartAccess(session, videoId, videoIndex).unlocked;
+
+  const getVideoStatusBracket = (session, videoId, videoIndex) =>
+    getPartAccess(session, videoId, videoIndex).label;
 
   // Search and filter states
   const [searchInput, setSearchInput] = useState('');
@@ -632,6 +589,7 @@ export default function HomeworksVideos() {
       ? studentData.homeworks_videos.find((s) => String(s.video_id) === String(sessionId))
       : null;
     if (!redeemed?.paid_with_session) return;
+    if (v.access_source && v.access_source !== 'credit') return;
     sessionUnlockViewsDecrementDoneRef.current = true;
     try {
       const decrementResponse = await apiClient.post(
@@ -686,13 +644,13 @@ export default function HomeworksVideos() {
     // Get video type, default to 'youtube' for backward compatibility
     const videoType = session[`video_type_${videoIndex}`] || 'youtube';
     const sessionId = session._id?.toString() || session._id;
-    const partPlayable = isVideoPartPlayable(session, videoId, videoIndex);
+    const access = getPartAccess(session, videoId, videoIndex);
 
-    if (partPlayable) {
+    if (access.unlocked) {
       let unlockedInfo = unlockedSessions.get(sessionId);
 
       // Sync number_of_days from server so admin day extensions apply automatically
-      if (unlockedInfo?.vhc_id && unlockedInfo.code_settings === 'number_of_days') {
+      if (access.source === 'code' && unlockedInfo?.vhc_id && unlockedInfo.code_settings === 'number_of_days') {
         try {
           const syncRes = await apiClient.post('/api/vhc/get-by-id', {
             vhc_id: unlockedInfo.vhc_id,
@@ -719,35 +677,28 @@ export default function HomeworksVideos() {
         } catch (err) {
           console.error('Failed to sync VHC number_of_days:', err);
         }
-      } else if (unlockedInfo) {
-        if (unlockedInfo.code_settings === 'deadline_date' && unlockedInfo.deadline_date) {
-          if (isDeadlinePassedEgypt(unlockedInfo.deadline_date, null)) {
-            setVhcError(getVerificationCodeMessage('vhc', CODE_ERROR.DEADLINE_EXPIRED, {
-              code_settings: 'deadline_date',
-              deadline_date: unlockedInfo.deadline_date,
-            }));
-            const newUnlocked = new Map(unlockedSessions);
-            newUnlocked.delete(sessionId);
-            setUnlockedSessions(newUnlocked);
-            return;
-          }
-        }
       }
-      
-      // Video is unlocked - open directly
+
+      // Video is unlocked - open directly.
+      // Only tag the code when the code is what grants access, so a watch never
+      // burns code views while free / credit access is still valid.
+      const codeMeta =
+        access.source === 'code'
+          ? {
+              vhc_id: unlockedInfo?.vhc_id,
+              code_settings: unlockedInfo?.code_settings,
+              number_of_views: unlockedInfo?.number_of_views,
+              number_of_days: unlockedInfo?.number_of_days,
+              access_started_at: unlockedInfo?.access_started_at,
+              deadline_date: unlockedInfo?.deadline_date,
+            }
+          : {};
       setSelectedVideo(
         withSelectedVideoMeta(session, {
           videoId,
           videoIndex,
           videoType,
-          extra: {
-            vhc_id: unlockedInfo?.vhc_id,
-            code_settings: unlockedInfo?.code_settings,
-            number_of_views: unlockedInfo?.number_of_views,
-            number_of_days: unlockedInfo?.number_of_days,
-            access_started_at: unlockedInfo?.access_started_at,
-            deadline_date: unlockedInfo?.deadline_date,
-          },
+          extra: { ...codeMeta, access_source: access.source },
         })
       );
       setVideoPopupOpen(true);
@@ -756,32 +707,10 @@ export default function HomeworksVideos() {
       watchedTenPercentRef.current = false;
       attendancePostedRef.current = false;
     } else {
-      // Locked / views-days-deadline exhausted → same unlock flow as a new locked video (VHC)
+      // Locked, or views / days / deadline exhausted → same unlock flow as a video that
+      // was never opened. An old VHC on the record must never re-open it by itself.
       const unlockedInfo = unlockedSessions.get(sessionId);
-      let lockHint = '';
-      if (isVideoUnlocked(session) || unlockedInfo) {
-        const remaining = getVideoPartViewsRemaining({
-          session,
-          sessionId,
-          videoId,
-          videoIndex,
-          studentOnlineEntries: [],
-          studentHomeworkEntries: studentData?.homeworks_videos || [],
-          unlockedInfo,
-        });
-        if (remaining !== null && remaining <= 0) {
-          lockHint = getVerificationCodeMessage('vhc', CODE_ERROR.NO_VIEWS_REMAINING);
-        } else if (unlockedInfo?.code_settings === 'number_of_days') {
-          lockHint = getVerificationCodeMessage('vhc', CODE_ERROR.DAYS_EXPIRED, {
-            code_settings: 'number_of_days',
-          });
-        } else if (unlockedInfo?.code_settings === 'deadline_date' && unlockedInfo.deadline_date) {
-          lockHint = getVerificationCodeMessage('vhc', CODE_ERROR.DEADLINE_EXPIRED, {
-            code_settings: 'deadline_date',
-            deadline_date: unlockedInfo.deadline_date,
-          });
-        }
-      }
+      const lockHint = buildLockHint(access, unlockedInfo);
 
       setPendingVideo({ session, videoId, videoIndex, videoType });
       if (isPaymentSystemEnabled) {
@@ -865,22 +794,28 @@ export default function HomeworksVideos() {
           }, 1500);
         }
 
-        const canPlayPart = isVideoPartAccessPlayable({
+        // A re-used code whose views for this slot are already spent must not open it
+        const unlockAccess = getVideoPartAccessState({
           session: pendingVideo.session,
           sessionId,
           videoId: pendingVideo.videoId,
           videoIndex: pendingVideo.videoIndex,
-          studentOnlineEntries: [],
-          studentHomeworkEntries: serverEntry
-            ? [serverEntry]
-            : [{ video_id: sessionId, vhc_id: response.data.vhc_id, ...(unlockInfo.part_views ? { part_views: unlockInfo.part_views, views_per_video_limit: unlockInfo.views_per_video_limit } : {}) }],
+          studentEntries: [
+            serverEntry || {
+              video_id: sessionId,
+              vhc_id: response.data.vhc_id,
+              part_views: unlockInfo.part_views || {},
+              views_per_video_limit: unlockInfo.views_per_video_limit,
+            },
+          ],
+          lessonData: getStudentLesson(studentData?.lessons, pendingVideo.session.lesson),
           unlockedInfo: unlockInfo,
-          sessionUnlocked: true,
+          freeAccessAllowed: isFreeAccessAllowed(pendingVideo.session),
         });
 
-        if (!canPlayPart) {
-          // Same exhausted code / expired access — keep popup open so they can try another VHC
-          setVhcError(getVerificationCodeMessage('vhc', CODE_ERROR.NO_VIEWS_REMAINING));
+        if (!unlockAccess.unlocked) {
+          // Exhausted / expired code — keep the popup open so another VHC can be tried
+          setVhcError(buildLockHint(unlockAccess, unlockInfo));
           return;
         }
 
@@ -890,7 +825,7 @@ export default function HomeworksVideos() {
             videoId: pendingVideo.videoId,
             videoIndex: pendingVideo.videoIndex,
             videoType: pendingVideo.videoType,
-            extra: unlockInfo,
+            extra: { ...unlockInfo, access_source: unlockAccess.source },
           })
         );
         setVideoPopupOpen(true);
@@ -1235,6 +1170,7 @@ export default function HomeworksVideos() {
                   videoId: pending.videoId,
                   videoIndex: pending.videoIndex,
                   videoType,
+                  extra: { access_source: 'credit' },
                 })
               );
               setVideoPopupOpen(true);

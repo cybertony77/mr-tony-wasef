@@ -76,14 +76,13 @@ export function resolveViewsPerVideoLimit(entry, fallbackLimit) {
 export function isSessionCreditPartUnlocked(entry, partKey, videoId = null, videoIndex = null) {
   if (!entry?.paid_with_session) return false;
   const views = normalizePartViews(entry.part_views);
-  const keys = [
-    partKey,
-    ...resolvePartViewKeys(videoId, videoIndex),
-    entry.session_unlock_part,
-  ].filter(Boolean);
+  // Only the requested slot's keys count — never the slot the credit was spent on.
+  const keys = [partKey, ...resolvePartViewKeys(videoId, videoIndex)].filter(Boolean);
   for (const k of keys) {
     if (Object.prototype.hasOwnProperty.call(views, k)) return true;
-    if (entry.session_unlock_part === k) return true;
+    if (entry.session_unlock_part != null && String(entry.session_unlock_part) === String(k)) {
+      return true;
+    }
   }
   return false;
 }
