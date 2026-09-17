@@ -4,6 +4,7 @@ import path from 'path';
 import { authMiddleware } from '../../../lib/authMiddleware';
 import { resolveGoogleMeetVideoForSave } from '../../../lib/googleServer';
 import { maskGoogleMeetIdsInDocuments } from '../../../lib/googleVideoIds';
+import { getEgyptDateParts } from '../../../lib/egyptDateTime';
 
 function loadEnvConfig() {
   try {
@@ -56,18 +57,9 @@ function extractZoomMeetingId(value) {
 
 // Format date as MM/DD/YYYY at hour:minute AM/PM
 function formatDate(date) {
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const year = date.getFullYear();
-  
-  let hours = date.getHours();
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  const ampm = hours >= 12 ? 'PM' : 'AM';
-  hours = hours % 12;
-  hours = hours ? hours : 12; // the hour '0' should be '12'
-  const hoursStr = String(hours).padStart(2, '0');
-  
-  return `${month}/${day}/${year} at ${hoursStr}:${minutes} ${ampm}`;
+  const p = getEgyptDateParts(date);
+  if (!p) return '';
+  return `${p.month}/${p.day}/${p.year} at ${p.hour12}:${p.minute} ${p.period}`;
 }
 
 export default async function handler(req, res) {

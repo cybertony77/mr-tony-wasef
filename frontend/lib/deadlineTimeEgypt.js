@@ -10,8 +10,42 @@
  */
 
 export const EGYPT_TIME_ZONE = 'Africa/Cairo';
-/** Egypt is permanently UTC+2 (no DST). Used only for Date.UTC conversions. */
-export const EGYPT_UTC_OFFSET_HOURS = 2;
+/** Winter offset. Egypt observes DST again since 2023, so never assume this. */
+export const EGYPT_BASE_UTC_OFFSET_HOURS = 2;
+
+/** Actual Africa/Cairo UTC offset in hours at a given instant (+2 winter, +3 summer). */
+export function getEgyptUtcOffsetHours(instant = new Date()) {
+  const date = instant instanceof Date ? instant : new Date(instant);
+  if (Number.isNaN(date.getTime())) return EGYPT_BASE_UTC_OFFSET_HOURS;
+  const name =
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: EGYPT_TIME_ZONE,
+      timeZoneName: 'longOffset',
+    })
+      .formatToParts(date)
+      .find((p) => p.type === 'timeZoneName')?.value || '';
+  const m = name.match(/GMT([+-])(\d{1,2}):(\d{2})/);
+  if (!m) return EGYPT_BASE_UTC_OFFSET_HOURS;
+  const sign = m[1] === '-' ? -1 : 1;
+  return sign * (Number(m[2]) + Number(m[3]) / 60);
+}
+
+/**
+ * UTC ms for a Cairo wall-clock moment. The offset depends on the instant we are
+ * solving for, so start from the winter offset and settle on the real one.
+ */
+function egyptWallClockToUtcMs(y, mo, d, hour, minute, second = 0, ms = 0) {
+  const naive = Date.UTC(y, mo - 1, d, hour, minute, second, ms);
+  let offset = EGYPT_BASE_UTC_OFFSET_HOURS;
+  let utc = naive - offset * 3600000;
+  for (let i = 0; i < 2; i++) {
+    const actual = getEgyptUtcOffsetHours(utc);
+    if (actual === offset) break;
+    offset = actual;
+    utc = naive - offset * 3600000;
+  }
+  return utc;
+}
 
 function pad2(n) {
   return String(n).padStart(2, '0');
@@ -140,13 +174,12 @@ export function getDeadlineEndUtcMs(deadlineDateYmd, deadlineTimeStr) {
   if (!ymd) return null;
   const [y, mo, d] = ymd.split('-').map(Number);
   const parsed = deadlineTimeStr ? parseDeadlineTime(String(deadlineTimeStr)) : null;
-  const off = EGYPT_UTC_OFFSET_HOURS;
   if (parsed) {
     const h24 = hour12To24(parsed.hour12, parsed.period);
     if (h24 === null) return null;
-    return Date.UTC(y, mo - 1, d, h24 - off, parsed.minute, 0, 0);
+    return egyptWallClockToUtcMs(y, mo, d, h24, parsed.minute);
   }
-  return Date.UTC(y, mo - 1, d, 23 - off, 59, 59, 999);
+  return egyptWallClockToUtcMs(y, mo, d, 23, 59, 59, 999);
 }
 
 /** Cairo "now" parts (civil date + 24h clock) for Africa/Cairo. */

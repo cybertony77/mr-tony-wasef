@@ -5,7 +5,6 @@ import { MantineProvider } from '@mantine/core';
 import NextJsApp from 'next/app';
 import { useRouter } from "next/router";
 import { useEffect, useLayoutEffect, useState, useMemo } from "react";
-import Head from "next/head";
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import Header from "../components/Header";
@@ -19,7 +18,13 @@ import {
   loadSystemBackgroundFromEnv,
 } from "../lib/systemColors";
 import DevToolsProtection from "../components/DevToolsProtection";
-import { isIndexablePath } from "../lib/seo";
+import {
+  getPageSeo,
+  isIndexablePath,
+  normalizeSeoPath,
+} from "../lib/seo";
+import SiteSeo from "../components/SiteSeo";
+import { useSystemConfig } from "../lib/api/system";
 
 const SYSTEM_BG_STORAGE_KEY = 'system-page-bg';
 /** Max wait before sending expired/unauthenticated users to login */
@@ -51,16 +56,23 @@ function applySystemBackground(value) {
 
 // DevTools protection lives in components/DevToolsProtection.jsx
 
-/** Default robots for private/authenticated routes. Public pages override via SiteSeo. */
-function DefaultRobotsMeta() {
+/** Per-route title/description (+ default robots for private routes). */
+function DefaultPageSeo() {
   const router = useRouter();
-  const path = String(router.pathname || '').split('?')[0];
-  if (isIndexablePath(path)) return null;
+  const { data: systemConfig } = useSystemConfig();
+  const path = normalizeSeoPath(router.pathname || router.asPath || "/");
+  const seo = getPageSeo(path, systemConfig?.name);
+  const indexable = isIndexablePath(path);
+
   return (
-    <Head>
-      <meta key="robots" name="robots" content="noindex, nofollow" />
-      <meta key="googlebot" name="googlebot" content="noindex, nofollow" />
-    </Head>
+    <SiteSeo
+      title={seo.title}
+      description={seo.description}
+      path={path}
+      siteName={systemConfig?.name}
+      origin={systemConfig?.domain}
+      noindex={!indexable}
+    />
   );
 }
 
@@ -957,7 +969,7 @@ export default function App({ Component, pageProps, systemBackground }) {
       <QueryClientProvider client={queryClient}>
         <ErrorBoundary>
           <MantineProvider forceColorScheme="light">
-            <DefaultRobotsMeta />
+            <DefaultPageSeo />
             <DevToolsProtection
               userRole={userRole}
               authReady={!isLoading}
@@ -1007,7 +1019,7 @@ export default function App({ Component, pageProps, systemBackground }) {
       <QueryClientProvider client={queryClient}>
         <ErrorBoundary>
           <MantineProvider forceColorScheme="light">
-            <DefaultRobotsMeta />
+            <DefaultPageSeo />
             <DevToolsProtection
               userRole={userRole}
               authReady={!isLoading}
@@ -1027,7 +1039,7 @@ export default function App({ Component, pageProps, systemBackground }) {
     <QueryClientProvider client={queryClient}>
       <ErrorBoundary>
         <MantineProvider forceColorScheme="light">
-          <DefaultRobotsMeta />
+          <DefaultPageSeo />
           <DevToolsProtection
             userRole={userRole}
             authReady={!isLoading}

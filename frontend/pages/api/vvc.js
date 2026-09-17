@@ -1,7 +1,8 @@
 import { MongoClient, ObjectId } from 'mongodb';
 import fs from 'fs';
 import path from 'path';
-import { authMiddleware } from '../../lib/authMiddleware';
+import { authMiddleware, isAuthError } from '../../lib/authMiddleware';
+import { withLiveRole } from '../../lib/resolveAuthUser';
 import {
   formatEgyptDateTime,
   toEgyptYmd,
@@ -54,6 +55,37 @@ function canAccessVvcVhc(role) {
   return false;
 }
 
+/**
+ * Auth + live role from DB (so assistant→admin promotions work
+ * without forcing a re-login), then open Mongo.
+ */
+async function requireVvcVhcUser(req) {
+  const tokenUser = await authMiddleware(req);
+  const client = await MongoClient.connect(MONGO_URI);
+  const db = client.db(DB_NAME);
+  const user = await withLiveRole(tokenUser, db);
+
+  if (!canAccessVvcVhc(user.role)) {
+    await client.close();
+    const error = new Error('Forbidden: Access denied');
+    error.statusCode = 403;
+    throw error;
+  }
+
+  return { client, db, user };
+}
+
+function respondVvcAccessError(res, error, label) {
+  if (error?.statusCode === 403) {
+    return res.status(403).json({ error: error.message || 'Forbidden: Access denied' });
+  }
+  if (isAuthError(error)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  console.error(label, error);
+  return res.status(500).json({ error: 'Internal server error' });
+}
+
 function normalizeDeadlineDateEgypt(deadlineDate) {
   if (!deadlineDate) return deadlineDate;
   if (typeof deadlineDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(deadlineDate)) {
@@ -97,16 +129,9 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     let client;
     try {
-      // Verify authentication
-      const user = await authMiddleware(req);
-      
-      // Check if user has required role (admin, developer, or assistant)
-      if (!canAccessVvcVhc(user.role)) {
-        return res.status(403).json({ error: 'Forbidden: Access denied' });
-      }
-
-      client = await MongoClient.connect(MONGO_URI);
-      const db = client.db(DB_NAME);
+      const auth = await requireVvcVhcUser(req);
+      client = auth.client;
+      const db = auth.db;
 
       // Check if pagination parameters are provided
       const { page, limit, search, sortBy, sortOrder, viewed, code_state, payment_state, code_lesson } = req.query;
@@ -209,8 +234,7 @@ export default async function handler(req, res) {
       
       return res.status(200).json({ data: normalizedRecords });
     } catch (error) {
-      console.error('VVC API error:', error);
-      return res.status(500).json({ error: 'Internal server error' });
+      return respondVvcAccessError(res, error, 'VVC API error:');
     } finally {
       if (client) await client.close();
     }
@@ -218,13 +242,10 @@ export default async function handler(req, res) {
     // Create new VVC
     let client;
     try {
-      // Verify authentication
-      const user = await authMiddleware(req);
-      
-      // Check if user has required role (admin, developer, or assistant)
-      if (!canAccessVvcVhc(user.role)) {
-        return res.status(403).json({ error: 'Forbidden: Access denied' });
-      }
+      const auth = await requireVvcVhcUser(req);
+      client = auth.client;
+      const db = auth.db;
+      const user = auth.user;
 
       const { number_of_codes, code_settings, number_of_views, number_of_days, deadline_date, code_state, code_lesson } = req.body;
 
@@ -263,9 +284,6 @@ export default async function handler(req, res) {
       if (!code_state || !['Activated', 'Deactivated'].includes(code_state)) {
         return res.status(400).json({ error: 'Code state must be Activated or Deactivated' });
       }
-
-      client = await MongoClient.connect(MONGO_URI);
-      const db = client.db(DB_NAME);
 
       const formattedDate = formatEgyptDateTime(new Date());
       const madeByWho = user.assistant_id || user.id || 'unknown';
@@ -308,8 +326,7 @@ export default async function handler(req, res) {
         data: newVVCs.map((vvc, index) => ({ ...vvc, _id: result.insertedIds[index] }))
       });
     } catch (error) {
-      console.error('Create VVC error:', error);
-      return res.status(500).json({ error: 'Internal server error' });
+      return respondVvcAccessError(res, error, 'Create VVC error:');
     } finally {
       if (client) await client.close();
     }
@@ -317,13 +334,9 @@ export default async function handler(req, res) {
     // Update VVC
     let client;
     try {
-      // Verify authentication
-      const user = await authMiddleware(req);
-      
-      // Check if user has required role (admin, developer, or assistant)
-      if (!canAccessVvcVhc(user.role)) {
-        return res.status(403).json({ error: 'Forbidden: Access denied' });
-      }
+      const auth = await requireVvcVhcUser(req);
+      client = auth.client;
+      const db = auth.db;
 
       const { id } = req.query;
       const { code_settings, number_of_views, number_of_days, deadline_date, code_state, payment_state, code_lesson } = req.body;
@@ -370,9 +383,6 @@ export default async function handler(req, res) {
       if (payment_state && !['Paid', 'Not Paid'].includes(payment_state)) {
         return res.status(400).json({ error: 'Payment state must be Paid or Not Paid' });
       }
-
-      client = await MongoClient.connect(MONGO_URI);
-      const db = client.db(DB_NAME);
 
       // Build update object
       const update = {};
@@ -431,8 +441,7 @@ export default async function handler(req, res) {
         message: 'VVC updated successfully'
       });
     } catch (error) {
-      console.error('Update VVC error:', error);
-      return res.status(500).json({ error: 'Internal server error' });
+      return respondVvcAccessError(res, error, 'Update VVC error:');
     } finally {
       if (client) await client.close();
     }
@@ -440,22 +449,15 @@ export default async function handler(req, res) {
     // Delete VVC
     let client;
     try {
-      // Verify authentication
-      const user = await authMiddleware(req);
-      
-      // Check if user has required role (admin, developer, or assistant)
-      if (!canAccessVvcVhc(user.role)) {
-        return res.status(403).json({ error: 'Forbidden: Access denied' });
-      }
+      const auth = await requireVvcVhcUser(req);
+      client = auth.client;
+      const db = auth.db;
 
       const { id } = req.query;
 
       if (!id) {
         return res.status(400).json({ error: 'VVC ID is required' });
       }
-
-      client = await MongoClient.connect(MONGO_URI);
-      const db = client.db(DB_NAME);
 
       // Delete VVC record
       const result = await db.collection('VVC').deleteOne({ _id: new ObjectId(id) });
@@ -469,8 +471,7 @@ export default async function handler(req, res) {
         message: 'VVC deleted successfully'
       });
     } catch (error) {
-      console.error('Delete VVC error:', error);
-      return res.status(500).json({ error: 'Internal server error' });
+      return respondVvcAccessError(res, error, 'Delete VVC error:');
     } finally {
       if (client) await client.close();
     }

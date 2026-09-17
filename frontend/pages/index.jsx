@@ -1521,6 +1521,23 @@ export default function Login() {
             <p className="otp-subtitle" style={{ color: '#6c757d', fontSize: '0.95rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
               We've sent an 8-digit code to your <Image src="/mail.svg" alt="Email" width={20} height={20} /> email
             </p>
+            <p
+              className="otp-spam-hint"
+              style={{
+                marginTop: '10px',
+                marginBottom: 0,
+                color: '#8a939b',
+                fontSize: '13px',
+                lineHeight: 1.45,
+                fontWeight: 400,
+              }}
+            >
+              Didn&apos;t receive the email? Check your{' '}
+              <span style={{ color: '#5c6770', fontWeight: 600 }}>
+                Spam or Junk folder
+              </span>
+              .
+            </p>
           </div>
 
           <div style={{ marginBottom: '20px' }}>

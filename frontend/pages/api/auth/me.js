@@ -64,6 +64,28 @@ export default async function handler(req, res) {
       );
       if (!assistant) return res.status(404).json({ error: 'Assistant not found' });
 
+      /*
+       * Role (and name) can change while the JWT is still valid.
+       * Re-issue the cookie so subsequent API checks see the live role
+       * without forcing a logout/login after promotions.
+       */
+      if (
+        assistant.role !== decoded.role ||
+        assistant.name !== decoded.name ||
+        String(assistant.id) !== String(decoded.assistant_id)
+      ) {
+        const token = jwt.sign(
+          {
+            assistant_id: assistant.id,
+            name: assistant.name,
+            role: assistant.role,
+          },
+          JWT_SECRET,
+          { expiresIn: '6h' }
+        );
+        res.setHeader('Set-Cookie', [buildAuthCookie(token)]);
+      }
+
       const payload = {
         id: assistant.id,
         name: assistant.name,

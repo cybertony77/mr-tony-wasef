@@ -64,6 +64,39 @@ export function formatEgyptAttendance(input = new Date(), center = 'Online', opt
   return `${base} at ${get('hour').replace(/^0/, '')}:${get('minute')} ${get('dayPeriod')}`;
 }
 
+/**
+ * Zero-padded Africa/Cairo clock parts for an instant, so API handlers can build
+ * their own display format without ever reading the server's local clock.
+ * Returns null for an invalid date.
+ */
+export function getEgyptDateParts(input = new Date()) {
+  const date = input instanceof Date ? input : new Date(input);
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: EGYPT_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const get = (type) => parts.find((p) => p.type === type)?.value || '';
+  const hour24 = parseInt(get('hour'), 10);
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  return {
+    year: get('year'),
+    month: get('month'),
+    day: get('day'),
+    hour24: String(hour24).padStart(2, '0'),
+    hour12: String(hour12).padStart(2, '0'),
+    minute: get('minute'),
+    second: get('second'),
+    period: hour24 >= 12 ? 'PM' : 'AM',
+  };
+}
+
 /** YYYY-MM-DD for a Date/ISO instant in Africa/Cairo. */
 export function toEgyptYmd(input = new Date()) {
   const date = input instanceof Date ? input : new Date(input);
