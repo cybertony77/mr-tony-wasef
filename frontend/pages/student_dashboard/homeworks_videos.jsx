@@ -56,6 +56,42 @@ function unlockInfoFromVhcResponse(data) {
   };
 }
 
+/** When live VHC is missing/deleted, rebuild unlock from mirrored student entry. */
+function unlockInfoFromStudentHomeworkEntry(entry) {
+  if (!entry?.vhc_id) return null;
+  const viewsLimit =
+    entry.views_per_video_limit ?? entry.number_of_views ?? null;
+  return unlockInfoFromVhcResponse({
+    vhc_id: String(entry.vhc_id),
+    code_settings: entry.code_settings || 'number_of_views',
+    number_of_views: viewsLimit,
+    views_per_video_limit: viewsLimit,
+    number_of_days: entry.number_of_days ?? null,
+    access_started_at: entry.access_started_at || null,
+    deadline_date: entry.deadline_date || null,
+    part_views: entry.part_views || {},
+  });
+}
+
+function mergeUnlockWithHomeworkEntry(unlockInfo, homeworkVideo) {
+  if (!unlockInfo) return null;
+  const merged = { ...unlockInfo };
+  if (homeworkVideo.part_views && typeof homeworkVideo.part_views === 'object') {
+    merged.part_views = { ...homeworkVideo.part_views };
+  }
+  if (homeworkVideo.views_per_video_limit != null) {
+    merged.views_per_video_limit = Number(homeworkVideo.views_per_video_limit);
+    merged.number_of_views = Number(homeworkVideo.views_per_video_limit);
+  }
+  if (
+    homeworkVideo.part_access_started_at &&
+    typeof homeworkVideo.part_access_started_at === 'object'
+  ) {
+    merged.part_access_started_at = { ...homeworkVideo.part_access_started_at };
+  }
+  return merged;
+}
+
 /** Message shown in the VHC popup when a locked slot is clicked. */
 function buildLockHint(access, unlockedInfo) {
   switch (access?.reason) {
@@ -233,36 +269,35 @@ export default function HomeworksVideos() {
 
         try {
           console.log('[RESTORE VHC] Fetching VHC details for video_id:', homeworkVideo.video_id, 'vhc_id:', homeworkVideo.vhc_id);
-          // Fetch VHC details by ID
           const response = await apiClient.post('/api/vhc/get-by-id', {
-            vhc_id: homeworkVideo.vhc_id
+            vhc_id: typeof homeworkVideo.vhc_id === 'string'
+              ? homeworkVideo.vhc_id
+              : homeworkVideo.vhc_id?.toString?.() || homeworkVideo.vhc_id,
           });
 
           console.log('[RESTORE VHC] VHC response:', response.data);
           if (response.data.success && response.data.valid) {
             console.log('[RESTORE VHC] Adding to unlocked sessions - videoId:', videoId, 'vhc_id:', response.data.vhc_id);
-            const unlockInfo = unlockInfoFromVhcResponse(response.data);
-            if (homeworkVideo.part_views && typeof homeworkVideo.part_views === 'object') {
-              unlockInfo.part_views = { ...homeworkVideo.part_views };
-            }
-            if (homeworkVideo.views_per_video_limit != null) {
-              unlockInfo.views_per_video_limit = Number(homeworkVideo.views_per_video_limit);
-              unlockInfo.number_of_views = Number(homeworkVideo.views_per_video_limit);
-            }
-            if (
-              homeworkVideo.part_access_started_at &&
-              typeof homeworkVideo.part_access_started_at === 'object'
-            ) {
-              unlockInfo.part_access_started_at = { ...homeworkVideo.part_access_started_at };
-            }
-            newUnlocked.set(videoId, unlockInfo);
+            const unlockInfo = mergeUnlockWithHomeworkEntry(
+              unlockInfoFromVhcResponse(response.data),
+              homeworkVideo
+            );
+            if (unlockInfo) newUnlocked.set(videoId, unlockInfo);
           } else {
-            console.log('[RESTORE VHC] VHC not valid:', response.data);
-            // Do not delete a freshly unlocked Map entry on a transient invalid response
+            console.log('[RESTORE VHC] VHC not valid, falling back to student entry:', response.data);
+            const fallback = mergeUnlockWithHomeworkEntry(
+              unlockInfoFromStudentHomeworkEntry(homeworkVideo),
+              homeworkVideo
+            );
+            if (fallback) newUnlocked.set(videoId, fallback);
           }
         } catch (err) {
           console.error('[RESTORE VHC] Failed to restore VHC for video:', homeworkVideo.video_id, err);
-          // Continue with other entries even if one fails
+          const fallback = mergeUnlockWithHomeworkEntry(
+            unlockInfoFromStudentHomeworkEntry(homeworkVideo),
+            homeworkVideo
+          );
+          if (fallback) newUnlocked.set(videoId, fallback);
         }
       }
 

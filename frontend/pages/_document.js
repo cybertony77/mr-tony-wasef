@@ -82,7 +82,7 @@ export default function MyDocument({
         />
 
         {/* Theme & App Settings — page-level SiteSeo overrides titles/descriptions */}
-        <meta name="theme-color" content={youtubeEmbed ? "#000000" : "#1FA8DC"} />
+        <meta name="theme-color" content={youtubeEmbed ? "#000000" : "#00d4ff"} />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />

@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { useProfile } from '../lib/api/auth';
 import { useStudent } from '../lib/api/students';
 import { useSystemConfig } from '../lib/api/system';
+import { getQrLogoProps, makeRoundedLogoDataUrl } from '../lib/qrCodeLogo';
 
 export default function QRCodeModal({ isOpen, onClose }) {
   const { data: profile } = useProfile();
@@ -18,7 +19,21 @@ export default function QRCodeModal({ isOpen, onClose }) {
   const [logoSize, setLogoSize] = useState(85);
   const [isGenerating, setIsGenerating] = useState(true);
   const [busy, setBusy] = useState(null); // 'download' | 'share' | null
+  const [roundedLogo, setRoundedLogo] = useState('/logo.png');
   const modalRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    makeRoundedLogoDataUrl('/logo.png', {
+      size: 256,
+      radius: 40,
+    }).then((url) => {
+      if (!cancelled) setRoundedLogo(url);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Handle responsive QR code sizing
   useEffect(() => {
@@ -409,18 +424,8 @@ export default function QRCodeModal({ isOpen, onClose }) {
                   id="student-qr-svg-modal"
                   value={qrValue}
                   size={qrSize}
-                  ecLevel="H"
-                  logoImage="/logo.png"
-                  logoWidth={logoSize}
-                  logoHeight={logoSize}
-                  logoPadding={3}
-                  logoPaddingStyle="square"
-                  logoBackgroundColor="white"
-                  logoBackgroundTransparent={false}
-                  removeQrCodeBehindLogo={true}
-                  logoPosition="center"
-                />
-                <div className="qr-id-text">{`ID No. ${studentData.id}`}</div>
+                  {...getQrLogoProps(roundedLogo, logoSize)}
+                />                <div className="qr-id-text">{`ID No. ${studentData.id}`}</div>
               </div>
               <div className="qr-action-row">
                 <button

@@ -1,31 +1,27 @@
 /**
- * Conservative DevTools deterrence (NOT a security boundary).
+ * DevTools deterrence when DEVTOOLS_BLOCK=true.
  *
- * - Fail open whenever uncertain (device, config, role, route, signals)
- * - Never use viewport outer/inner geometry as proof of DevTools
- * - Never logout / clear storage because of a heuristic
- * - Touch-first / ambiguous devices: no aggressive detection
- * - State machine: DISABLED → IDLE → SUSPECTED → CONFIRMED → WARNING
- *
- * Detection uses intentional keyboard signals only (F12 / Ctrl+Shift+I|J|C).
- * A single signal never warns; confirmation requires repeated intentional signals
- * with persistence. Warning clears when signals stop or the student continues.
+ * Detects docked/undocked DevTools via outer/inner window gaps (baseline-learned),
+ * blocks shortcuts/context menu, shows overlay + 15s countdown, then logs out.
+ * Skips: config off, phones/tablets (no desktop DevTools), developers, embed shells.
+ * Public pages (e.g. / login): overlay only. Authenticated pages: overlay + 15s logout.
  */
 
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { classifyDevice } from '../lib/devtoolsProtection/classifyDevice';
-import { shouldProtectCurrentRoute } from '../lib/devtoolsProtection/routes';
-
-const STATES = {
-  DISABLED: 'DISABLED',
-  IDLE: 'IDLE',
-  SUSPECTED: 'SUSPECTED',
-  CONFIRMED: 'CONFIRMED',
-  WARNING: 'WARNING',
-};
+import {
+  shouldProtectCurrentRoute,
+  isPublicPath,
+} from '../lib/devtoolsProtection/routes';
 
 const IS_DEV = process.env.NODE_ENV === 'development';
+const COUNTDOWN_SECONDS = 15;
+const OPEN_DELTA = 120;
+const CLOSE_DELTA = 80;
+const REQUIRED_DETECTIONS = 2;
+const CHECK_INTERVAL_MS = 400;
+const BASELINE_SAMPLES_NEEDED = 4;
 
 function logDiag(payload) {
   if (!IS_DEV) return;
@@ -71,50 +67,23 @@ export default function DevToolsProtection({
   devtoolsBlockEnabled = null,
 }) {
   const router = useRouter();
-  const [machineState, setMachineState] = useState(STATES.DISABLED);
   const [deviceInfo, setDeviceInfo] = useState(null);
-  const [protectionActive, setProtectionActive] = useState(false);
-
-  const signalTimestampsRef = useRef([]);
-  const clearTimerRef = useRef(null);
-  const layoutCooldownRef = useRef(0);
-  const mountedRef = useRef(true);
-  const machineStateRef = useRef(machineState);
+  const [devToolsDetected, setDevToolsDetected] = useState(false);
+  const [timer, setTimer] = useState(COUNTDOWN_SECONDS);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const pathname = router?.pathname || '';
+  const isPublicPage = isPublicPath(pathname);
 
   useEffect(() => {
-    machineStateRef.current = machineState;
-  }, [machineState]);
-
-  const resetSignals = useCallback((next = STATES.IDLE) => {
-    signalTimestampsRef.current = [];
-    if (clearTimerRef.current) {
-      clearTimeout(clearTimerRef.current);
-      clearTimerRef.current = null;
-    }
-    if (mountedRef.current) {
-      setMachineState(next);
-    }
-  }, []);
-
-  useEffect(() => {
-    mountedRef.current = true;
     const info = classifyDevice();
     setDeviceInfo(info);
     logDiag({
       phase: 'device',
       deviceType: info.type,
-      touch: info.touch,
-      coarsePointer: info.coarsePointer,
-      hoverNone: info.hoverNone,
-      standalone: info.standalone,
       allowAggressiveDetection: info.allowAggressiveDetection,
       reason: info.reason,
     });
-    return () => {
-      mountedRef.current = false;
-    };
   }, []);
 
   const eligibility = useMemo(() => {
@@ -124,7 +93,6 @@ export default function DevToolsProtection({
         reason: devtoolsBlockEnabled === null ? 'config-loading' : 'config-disabled',
       };
     }
-    if (!authReady) return { active: false, reason: 'auth-not-ready' };
     if (!deviceInfo) return { active: false, reason: 'device-pending' };
     if (!deviceInfo.allowAggressiveDetection) {
       return {
@@ -132,24 +100,23 @@ export default function DevToolsProtection({
         reason: `touch-or-ambiguous:${deviceInfo.reason}`,
       };
     }
+    if (userRole === 'developer') {
+      return { active: false, reason: 'developer-exempt' };
+    }
+
     const route = shouldProtectCurrentRoute(pathname, userRole);
     if (!route.protect) return { active: false, reason: route.reason };
-    return { active: true, reason: route.reason };
+
+    // Public pages: protect immediately (don't wait for auth /me).
+    // Private pages: wait until auth is ready so role is known.
+    if (!route.soft && !authReady) {
+      return { active: false, reason: 'auth-not-ready' };
+    }
+
+    return { active: true, soft: !!route.soft, reason: route.reason };
   }, [devtoolsBlockEnabled, authReady, deviceInfo, pathname, userRole]);
 
   useEffect(() => {
-    setProtectionActive(eligibility.active);
-    if (!eligibility.active) {
-      signalTimestampsRef.current = [];
-      if (clearTimerRef.current) {
-        clearTimeout(clearTimerRef.current);
-        clearTimerRef.current = null;
-      }
-      setMachineState(STATES.DISABLED);
-    } else {
-      setMachineState(STATES.IDLE);
-      signalTimestampsRef.current = [];
-    }
     logDiag({
       phase: 'eligibility',
       protectionEnabled: eligibility.active,
@@ -158,58 +125,97 @@ export default function DevToolsProtection({
       userRole,
       deviceType: deviceInfo?.type,
     });
+    if (!eligibility.active) {
+      setDevToolsDetected(false);
+      setTimer(COUNTDOWN_SECONDS);
+      setIsLoggingOut(false);
+    }
   }, [eligibility, pathname, userRole, deviceInfo]);
 
+  // Geometry + shortcut detection
   useEffect(() => {
-    if (!protectionActive || typeof window === 'undefined') {
+    if (!eligibility.active || typeof window === 'undefined') {
       return undefined;
     }
 
-    const REQUIRED_FOR_SUSPECTED = 1;
-    const REQUIRED_FOR_CONFIRMED = 2;
-    const REQUIRED_FOR_WARNING = 3;
-    const SIGNAL_WINDOW_MS = 12_000;
-    const PERSIST_CLEAR_MS = 6_000;
-    const LAYOUT_COOLDOWN_MS = 2_000;
+    let rafId = 0;
+    let lastCheck = 0;
+    let baselineWidthGap = null;
+    let baselineHeightGap = null;
+    let baselineSamples = 0;
+    let detectionCount = 0;
+    let clearCount = 0;
 
-    const scheduleClearIfQuiet = () => {
-      if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
-      clearTimerRef.current = setTimeout(() => {
-        if (!mountedRef.current) return;
-        signalTimestampsRef.current = [];
-        setMachineState(STATES.IDLE);
-        logDiag({ phase: 'clear', state: STATES.IDLE, reason: 'signals-quiet' });
-      }, PERSIST_CLEAR_MS);
-    };
+    const readGaps = () => ({
+      widthGap: Math.max(0, window.outerWidth - window.innerWidth),
+      heightGap: Math.max(0, window.outerHeight - window.innerHeight),
+    });
 
-    const registerIntentionalSignal = (signal) => {
-      if (Date.now() < layoutCooldownRef.current) {
-        logDiag({ phase: 'signal-ignored', signal, reason: 'layout-cooldown' });
+    const detectDevTools = () => {
+      const { widthGap, heightGap } = readGaps();
+
+      // Absolute size: DevTools already open on first paint (baseline would hide it)
+      const absolutelyOpen =
+        widthGap > OPEN_DELTA + 40 || heightGap > OPEN_DELTA + 40;
+
+      if (baselineWidthGap === null || baselineSamples < BASELINE_SAMPLES_NEEDED) {
+        if (absolutelyOpen) {
+          detectionCount += 1;
+          if (detectionCount >= REQUIRED_DETECTIONS) {
+            setDevToolsDetected(true);
+          }
+          // Do not lock a "DevTools-open" baseline
+          return;
+        }
+        baselineWidthGap =
+          baselineWidthGap === null ? widthGap : Math.min(baselineWidthGap, widthGap);
+        baselineHeightGap =
+          baselineHeightGap === null ? heightGap : Math.min(baselineHeightGap, heightGap);
+        baselineSamples += 1;
+        detectionCount = 0;
+        clearCount = 0;
+        setDevToolsDetected(false);
         return;
       }
 
-      const now = Date.now();
-      const recent = signalTimestampsRef.current.filter((t) => now - t < SIGNAL_WINDOW_MS);
-      recent.push(now);
-      signalTimestampsRef.current = recent;
-      const count = recent.length;
+      const widthIncrease = widthGap - baselineWidthGap;
+      const heightIncrease = heightGap - baselineHeightGap;
+      const looksOpen =
+        absolutelyOpen ||
+        widthIncrease > OPEN_DELTA ||
+        heightIncrease > OPEN_DELTA;
+      const looksClosed =
+        !absolutelyOpen &&
+        widthIncrease < CLOSE_DELTA &&
+        heightIncrease < CLOSE_DELTA;
 
-      logDiag({
-        phase: 'signal',
-        signal,
-        count,
-        state: machineStateRef.current,
-        confidence: Math.min(1, count / REQUIRED_FOR_WARNING),
-      });
-
-      if (count >= REQUIRED_FOR_WARNING) {
-        setMachineState(STATES.WARNING);
-      } else if (count >= REQUIRED_FOR_CONFIRMED) {
-        setMachineState(STATES.CONFIRMED);
-      } else if (count >= REQUIRED_FOR_SUSPECTED) {
-        setMachineState(STATES.SUSPECTED);
+      if (looksOpen) {
+        clearCount = 0;
+        detectionCount += 1;
+        if (detectionCount >= REQUIRED_DETECTIONS) {
+          setDevToolsDetected(true);
+          detectionCount = REQUIRED_DETECTIONS;
+        }
+        return;
       }
-      scheduleClearIfQuiet();
+
+      if (looksClosed) {
+        detectionCount = 0;
+        clearCount += 1;
+        if (clearCount >= 2) {
+          setDevToolsDetected(false);
+          baselineWidthGap = Math.min(baselineWidthGap, widthGap);
+          baselineHeightGap = Math.min(baselineHeightGap, heightGap);
+        }
+      }
+    };
+
+    const continuousCheck = (timestamp) => {
+      if (timestamp - lastCheck >= CHECK_INTERVAL_MS) {
+        detectDevTools();
+        lastCheck = timestamp;
+      }
+      rafId = requestAnimationFrame(continuousCheck);
     };
 
     const handleContextMenu = (e) => {
@@ -222,66 +228,108 @@ export default function DevToolsProtection({
       if (isDevToolsShortcut(e) || isViewSourceShortcut(e)) {
         e.preventDefault();
         e.stopPropagation();
-        if (isDevToolsShortcut(e)) {
-          registerIntentionalSignal(`shortcut:${e.key || e.keyCode}`);
-        }
+        detectDevTools();
+        setTimeout(() => detectDevTools(), 400);
         return false;
       }
       return undefined;
     };
 
-    const markLayoutChange = (reason) => {
-      layoutCooldownRef.current = Date.now() + LAYOUT_COOLDOWN_MS;
-      logDiag({ phase: 'layout', reason, action: 'cooldown' });
-      setMachineState((prev) => {
-        if (prev === STATES.SUSPECTED || prev === STATES.CONFIRMED) {
-          signalTimestampsRef.current = [];
-          return STATES.IDLE;
-        }
-        // WARNING: do not hard-lock; treat layout change as uncertainty → fail open
-        if (prev === STATES.WARNING) {
-          signalTimestampsRef.current = [];
-          return STATES.IDLE;
-        }
-        return prev;
-      });
-    };
+    const handleResize = () => detectDevTools();
 
-    const handleResize = () => markLayoutChange('resize');
-    const handleOrientation = () => markLayoutChange('orientationchange');
-    const handleVisibility = () => markLayoutChange('visibilitychange');
-    const handleFullscreen = () => markLayoutChange('fullscreenchange');
-
+    rafId = requestAnimationFrame(continuousCheck);
     document.addEventListener('contextmenu', handleContextMenu, true);
     document.addEventListener('keydown', handleKeyDown, true);
     window.addEventListener('resize', handleResize);
-    window.addEventListener('orientationchange', handleOrientation);
-    document.addEventListener('visibilitychange', handleVisibility);
-    document.addEventListener('fullscreenchange', handleFullscreen);
 
     logDiag({ phase: 'listeners', action: 'attached' });
 
     return () => {
+      if (rafId) cancelAnimationFrame(rafId);
       document.removeEventListener('contextmenu', handleContextMenu, true);
       document.removeEventListener('keydown', handleKeyDown, true);
       window.removeEventListener('resize', handleResize);
-      window.removeEventListener('orientationchange', handleOrientation);
-      document.removeEventListener('visibilitychange', handleVisibility);
-      document.removeEventListener('fullscreenchange', handleFullscreen);
-      if (clearTimerRef.current) {
-        clearTimeout(clearTimerRef.current);
-        clearTimerRef.current = null;
-      }
       logDiag({ phase: 'listeners', action: 'detached' });
     };
-  }, [protectionActive]);
+  }, [eligibility.active]);
 
-  const dismissWarning = () => {
-    resetSignals(STATES.IDLE);
-    logDiag({ phase: 'dismiss', reason: 'user-continue' });
-  };
+  // Countdown + logout (authenticated protected pages only)
+  useEffect(() => {
+    if (!eligibility.active || !devToolsDetected || isPublicPage) {
+      setTimer(COUNTDOWN_SECONDS);
+      setIsLoggingOut(false);
+      return undefined;
+    }
 
-  if (machineState !== STATES.WARNING) {
+    let cancelled = false;
+    let currentTime = COUNTDOWN_SECONDS;
+    setTimer(COUNTDOWN_SECONDS);
+    setIsLoggingOut(false);
+
+    const logout = async () => {
+      if (cancelled) return;
+      setIsLoggingOut(true);
+      try {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          credentials: 'include',
+        });
+      } catch {
+        /* continue cleanup */
+      }
+
+      try {
+        document.cookie.split(';').forEach((c) => {
+          const eqPos = c.indexOf('=');
+          const name = eqPos > -1 ? c.slice(0, eqPos).trim() : c.trim();
+          if (!name) return;
+          document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
+          document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=${window.location.hostname}`;
+        });
+      } catch {
+        /* ignore */
+      }
+
+      try {
+        localStorage.clear();
+      } catch {
+        /* ignore */
+      }
+      try {
+        sessionStorage.clear();
+      } catch {
+        /* ignore */
+      }
+
+      if (!cancelled) {
+        window.location.href = '/';
+      }
+    };
+
+    const timerInterval = setInterval(() => {
+      currentTime -= 1;
+      if (cancelled) return;
+      setTimer(currentTime);
+      if (currentTime <= 0) {
+        clearInterval(timerInterval);
+        setTimer(0);
+        logout();
+      }
+    }, 1000);
+
+    const backupTimeout = setTimeout(() => {
+      clearInterval(timerInterval);
+      logout();
+    }, COUNTDOWN_SECONDS * 1000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timerInterval);
+      clearTimeout(backupTimeout);
+    };
+  }, [eligibility.active, devToolsDetected, isPublicPage]);
+
+  if (!eligibility.active || !devToolsDetected) {
     return null;
   }
 
@@ -300,6 +348,7 @@ export default function DevToolsProtection({
           WebkitBackdropFilter: 'blur(20px)',
           zIndex: 99999,
           pointerEvents: 'auto',
+          cursor: 'none',
         }}
         onContextMenu={(e) => e.preventDefault()}
       />
@@ -324,6 +373,7 @@ export default function DevToolsProtection({
           gap: '20px',
           minWidth: 'min(400px, 92vw)',
           maxWidth: '90%',
+          cursor: 'none',
           pointerEvents: 'auto',
           userSelect: 'none',
         }}
@@ -331,50 +381,68 @@ export default function DevToolsProtection({
       >
         <div style={{ color: 'white', fontSize: '3rem' }}>🔒</div>
         <div
+          className="devtools-message"
           style={{
             color: 'white',
-            fontSize: '1.35rem',
+            fontSize: '1.5rem',
             fontWeight: 'bold',
             textAlign: 'center',
             lineHeight: 1.5,
           }}
         >
-          Developer tools detected. Please close them to continue.
+          {isPublicPage ? (
+            <>Developer tools detected. Please close them to continue.</>
+          ) : (
+            <>
+              Developer tools detected. Close them to continue or you&apos;ll be redirected to
+              login in{' '}
+              <span
+                className="devtools-timer"
+                style={{
+                  color: '#1FA8DC',
+                  fontSize: '1.8rem',
+                  fontWeight: 'bold',
+                }}
+              >
+                {timer.toString().padStart(2, '0')}
+              </span>{' '}
+              seconds.
+            </>
+          )}
         </div>
-        <p
-          style={{
-            color: 'rgba(255,255,255,0.75)',
-            fontSize: '0.95rem',
-            textAlign: 'center',
-            margin: 0,
-            maxWidth: 420,
-            lineHeight: 1.4,
-          }}
-        >
-          If you did not open Developer Tools, tap Continue — this check never signs you out.
-        </p>
-        <button
-          type="button"
-          onClick={dismissWarning}
-          style={{
-            marginTop: 8,
-            padding: '12px 28px',
-            borderRadius: 10,
-            border: 'none',
-            background: '#1FA8DC',
-            color: '#fff',
-            fontWeight: 700,
-            fontSize: '1rem',
-            cursor: 'pointer',
-          }}
-        >
-          Continue
-        </button>
+        {isLoggingOut ? (
+          <div
+            className="devtools-spinner"
+            style={{
+              width: '50px',
+              height: '50px',
+              border: '4px solid rgba(255, 255, 255, 0.3)',
+              borderTop: '4px solid #1FA8DC',
+              borderRadius: '50%',
+              animation: 'devtools-spin 1s linear infinite',
+              marginTop: '10px',
+            }}
+          />
+        ) : null}
       </div>
 
       <style jsx global>{`
+        @keyframes devtools-spin {
+          0% {
+            transform: rotate(0deg);
+          }
+          100% {
+            transform: rotate(360deg);
+          }
+        }
         body {
           overflow: hidden !important;
+        }
+        [data-devtools-overlay],
+        [data-devtools-message-container],
+        [data-devtools-message-container] * {
+          pointer-events: auto !important;
+          cursor: none !important;
         }
       `}</style>
     </>

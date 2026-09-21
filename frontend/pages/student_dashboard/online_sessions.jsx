@@ -57,6 +57,42 @@ function unlockInfoFromVvcResponse(data) {
   };
 }
 
+/** When live VVC is missing/deleted, rebuild unlock from mirrored student entry. */
+function unlockInfoFromStudentOnlineEntry(entry) {
+  if (!entry?.vvc_id) return null;
+  const viewsLimit =
+    entry.views_per_video_limit ?? entry.number_of_views ?? null;
+  return unlockInfoFromVvcResponse({
+    vvc_id: String(entry.vvc_id),
+    code_settings: entry.code_settings || 'number_of_views',
+    number_of_views: viewsLimit,
+    views_per_video_limit: viewsLimit,
+    number_of_days: entry.number_of_days ?? null,
+    access_started_at: entry.access_started_at || null,
+    deadline_date: entry.deadline_date || null,
+    part_views: entry.part_views || {},
+  });
+}
+
+function mergeUnlockWithStudentEntry(unlockInfo, onlineSession) {
+  if (!unlockInfo) return null;
+  const merged = { ...unlockInfo };
+  if (onlineSession.part_views && typeof onlineSession.part_views === 'object') {
+    merged.part_views = { ...onlineSession.part_views };
+  }
+  if (onlineSession.views_per_video_limit != null) {
+    merged.views_per_video_limit = Number(onlineSession.views_per_video_limit);
+    merged.number_of_views = Number(onlineSession.views_per_video_limit);
+  }
+  if (
+    onlineSession.part_access_started_at &&
+    typeof onlineSession.part_access_started_at === 'object'
+  ) {
+    merged.part_access_started_at = { ...onlineSession.part_access_started_at };
+  }
+  return merged;
+}
+
 /** Message shown in the VVC popup when a locked slot is clicked. */
 function buildLockHint(session, access, unlockedInfo) {
   const isFree = FREE_ONLINE_SESSION_PAYMENT_STATES.includes(session?.payment_state);
@@ -346,36 +382,35 @@ export default function OnlineSessions() {
 
         try {
           console.log('[RESTORE] Fetching VVC details for video_id:', onlineSession.video_id, 'vvc_id:', onlineSession.vvc_id);
-          // Fetch VVC details by ID
           const response = await apiClient.post('/api/vvc/get-by-id', {
-            vvc_id: onlineSession.vvc_id
+            vvc_id: typeof onlineSession.vvc_id === 'string'
+              ? onlineSession.vvc_id
+              : onlineSession.vvc_id?.toString?.() || onlineSession.vvc_id,
           });
 
           console.log('[RESTORE] VVC response:', response.data);
           if (response.data.success && response.data.valid) {
             console.log('[RESTORE] Adding to unlocked sessions - videoId:', videoId, 'vvc_id:', response.data.vvc_id);
-            const unlockInfo = unlockInfoFromVvcResponse(response.data);
-            if (onlineSession.part_views && typeof onlineSession.part_views === 'object') {
-              unlockInfo.part_views = { ...onlineSession.part_views };
-            }
-            if (onlineSession.views_per_video_limit != null) {
-              unlockInfo.views_per_video_limit = Number(onlineSession.views_per_video_limit);
-              unlockInfo.number_of_views = Number(onlineSession.views_per_video_limit);
-            }
-            if (
-              onlineSession.part_access_started_at &&
-              typeof onlineSession.part_access_started_at === 'object'
-            ) {
-              unlockInfo.part_access_started_at = { ...onlineSession.part_access_started_at };
-            }
-            newUnlocked.set(videoId, unlockInfo);
+            const unlockInfo = mergeUnlockWithStudentEntry(
+              unlockInfoFromVvcResponse(response.data),
+              onlineSession
+            );
+            if (unlockInfo) newUnlocked.set(videoId, unlockInfo);
           } else {
-            console.log('[RESTORE] VVC not valid:', response.data);
-            // Do not delete a freshly unlocked Map entry on a transient invalid response
+            console.log('[RESTORE] VVC not valid, falling back to student entry:', response.data);
+            const fallback = mergeUnlockWithStudentEntry(
+              unlockInfoFromStudentOnlineEntry(onlineSession),
+              onlineSession
+            );
+            if (fallback) newUnlocked.set(videoId, fallback);
           }
         } catch (err) {
           console.error('[RESTORE] Failed to restore VVC for video:', onlineSession.video_id, err);
-          // Continue with other entries even if one fails
+          const fallback = mergeUnlockWithStudentEntry(
+            unlockInfoFromStudentOnlineEntry(onlineSession),
+            onlineSession
+          );
+          if (fallback) newUnlocked.set(videoId, fallback);
         }
       }
 

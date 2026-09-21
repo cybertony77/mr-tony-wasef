@@ -18,6 +18,7 @@ import {
   loadSystemBackgroundFromEnv,
 } from "../lib/systemColors";
 import DevToolsProtection from "../components/DevToolsProtection";
+import { PUBLIC_PAGES } from "../lib/devtoolsProtection/routes";
 import {
   getPageSeo,
   isIndexablePath,
@@ -335,7 +336,7 @@ export default function App({ Component, pageProps, systemBackground }) {
   const [isSubscriptionEnabled, setIsSubscriptionEnabled] = useState(true); // Default to true
 
   // Define public pages using useMemo to prevent recreation on every render
-  const publicPages = useMemo(() => ["/", "/sign-up", "/contact_developer", "/contact_assistants", "/welcome", "/leave-a-review", "/404", "/forgot_password", "/student_not_found", "/dashboard/student_info"], []);
+  const publicPages = useMemo(() => [...PUBLIC_PAGES], []);
 
   const isYoutubeEmbedShell = router.pathname.startsWith("/youtube-player");
   

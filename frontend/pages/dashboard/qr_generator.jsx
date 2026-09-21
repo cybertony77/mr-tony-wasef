@@ -10,6 +10,7 @@ import {
   createSystemCanvasGradient,
   getClientSystemBackground,
 } from "../../lib/systemColors";
+import { getQrLogoProps, makeRoundedLogoDataUrl } from "../../lib/qrCodeLogo";
 
 export default function QRGenerator() {
   const router = useRouter();
@@ -26,6 +27,7 @@ export default function QRGenerator() {
   const [qrSize, setQrSize] = useState(350);
   const [logoSize, setLogoSize] = useState(85);
   const [busy, setBusy] = useState(null); // 'download' | 'share' | 'zip-share' | null
+  const [roundedLogo, setRoundedLogo] = useState("/logo.png");
 
   const inputRef = useRef(null);
   const isMarketingPageEnabled =
@@ -33,6 +35,19 @@ export default function QRGenerator() {
   const originDomain =
     typeof window !== "undefined" ? window.location.origin.replace(/\/+$/, "") : "";
   const configuredDomain = (systemConfig?.domain || "").replace(/\/+$/, "");
+
+  useEffect(() => {
+    let cancelled = false;
+    makeRoundedLogoDataUrl("/logo.png", {
+      size: 256,
+      radius: 40,
+    }).then((url) => {
+      if (!cancelled) setRoundedLogo(url);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const buildQrValue = (id) => {
     if (!id) return "";
@@ -701,18 +716,8 @@ export default function QRGenerator() {
                     id="single-qr-svg"
                     value={buildQrValue(singleId)}
                     size={qrSize}
-                    ecLevel="H"
-                    logoImage="/logo.png"
-                    logoWidth={logoSize}
-                    logoHeight={logoSize}
-                    logoPadding={3}
-                    logoPaddingStyle="square"
-                    logoBackgroundColor="white"
-                    logoBackgroundTransparent={false}
-                    removeQrCodeBehindLogo={true}
-                    logoPosition="center"
-                  />
-                  <div className="qr-id-text">{`ID No. ${singleId}`}</div>
+                    {...getQrLogoProps(roundedLogo, logoSize)}
+                  />                  <div className="qr-id-text">{`ID No. ${singleId}`}</div>
                 </div>
                 <div className="qr-action-row">
                   <button
@@ -809,18 +814,8 @@ export default function QRGenerator() {
                   id={`hidden-qr-${id}`}
                   value={buildQrValue(id)}
                   size={qrSize}
-                  ecLevel="H"
-                  logoImage="/logo.png"
-                  logoWidth={logoSize}
-                  logoHeight={logoSize}
-                  logoPadding={3}
-                  logoPaddingStyle="square"
-                  logoBackgroundColor="white"
-                  logoBackgroundTransparent={false}
-                  removeQrCodeBehindLogo={true}
-                  logoPosition="center"
-                />
-                <div className="qr-id-text">{`ID No. ${id}`}</div>
+                  {...getQrLogoProps(roundedLogo, logoSize)}
+                />                <div className="qr-id-text">{`ID No. ${id}`}</div>
               </div>
             ))}
           </div>

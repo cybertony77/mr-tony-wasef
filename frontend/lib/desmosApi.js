@@ -92,6 +92,14 @@ export const DESMOS_CALC_TYPES = [
   { id: '3d', label: '3D' },
 ];
 
+/**
+ * Default calculator model:
+ * NATIONAL_SYSTEM=true  → Scientific
+ * NATIONAL_SYSTEM=false → Graphing
+ */
+export function getDefaultDesmosCalcType(isNationalSystem) {
+  return isNationalSystem ? 'scientific' : 'graphing';
+}
 const SHARED_OPTIONS = {
   border: false,
   autosize: true,

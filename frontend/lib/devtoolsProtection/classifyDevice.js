@@ -68,11 +68,20 @@ export function classifyDevice() {
     /Macintosh/i.test(ua) && maxTouchPoints > 1;
   const classicMobileUa =
     /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|Mobile/i.test(ua);
+  const tabletUa = /iPad|Tablet|Android(?!.*Mobile)/i.test(ua);
 
-  // Strong touch-first signals (tablets / phones / many hybrids)
+  const screenMin = Math.min(
+    Number(window.screen?.width) || 0,
+    Number(window.screen?.height) || 0
+  );
+  const smallTouchScreen = touch && screenMin > 0 && screenMin < 768;
+
+  // Phones / tablets / touch-first devices: no DevTools overlay (they don't have desktop DevTools)
   if (
     iPadDesktopUa ||
-    (touch && classicMobileUa) ||
+    tabletUa ||
+    classicMobileUa ||
+    smallTouchScreen ||
     (touch && coarsePointer === true) ||
     (touch && hoverNone === true && finePointer === false) ||
     (standalone && touch)
@@ -87,13 +96,17 @@ export function classifyDevice() {
       allowAggressiveDetection: false,
       reason: iPadDesktopUa
         ? 'ipad-desktop-ua'
-        : standalone && touch
-          ? 'pwa-touch'
-          : coarsePointer
-            ? 'coarse-pointer'
-            : hoverNone
-              ? 'hover-none'
-              : 'touch-mobile-ua',
+        : tabletUa
+          ? 'tablet-ua'
+          : classicMobileUa
+            ? 'touch-mobile-ua'
+            : smallTouchScreen
+              ? 'small-touch-screen'
+              : standalone && touch
+                ? 'pwa-touch'
+                : coarsePointer
+                  ? 'coarse-pointer'
+                  : 'hover-none',
     };
   }
 
@@ -116,7 +129,22 @@ export function classifyDevice() {
     };
   }
 
-  // Touch-enabled Windows / hybrid laptops: treat as ambiguous → fail open
+  // Touch-enabled Windows / hybrid laptops with a real mouse/trackpad:
+  // still allow DevTools detection (common desktop Chrome setup).
+  if (touch && (finePointer === true || canHover === true) && coarsePointer !== true) {
+    return {
+      type: DESKTOP,
+      touch,
+      maxTouchPoints,
+      coarsePointer,
+      hoverNone,
+      standalone,
+      allowAggressiveDetection: true,
+      reason: 'hybrid-fine-pointer-desktop',
+    };
+  }
+
+  // Coarse hybrid / unclear touch laptops → fail open
   if (touch && (finePointer === true || canHover === true)) {
     return {
       type: AMBIGUOUS,

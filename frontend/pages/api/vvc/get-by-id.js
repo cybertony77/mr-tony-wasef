@@ -14,8 +14,8 @@ function loadEnvConfig() {
     const envPath = path.join(process.cwd(), '..', 'env.config');
     const envContent = fs.readFileSync(envPath, 'utf8');
     const envVars = {};
-    
-    envContent.split('\n').forEach(line => {
+
+    envContent.split('\n').forEach((line) => {
       const trimmed = line.trim();
       if (trimmed && !trimmed.startsWith('#')) {
         const index = trimmed.indexOf('=');
@@ -27,12 +27,49 @@ function loadEnvConfig() {
         }
       }
     });
-    
+
     return envVars;
   } catch (error) {
     console.log('⚠️  Could not read env.config, using process.env as fallback');
     return {};
   }
+}
+
+function normalizeIdString(value) {
+  if (value == null) return null;
+  if (typeof value === 'string') {
+    const s = value.trim();
+    return s || null;
+  }
+  if (typeof value === 'object') {
+    if (value.$oid) return String(value.$oid);
+    if (typeof value.toHexString === 'function') return value.toHexString();
+    if (typeof value.toString === 'function') {
+      const s = value.toString();
+      if (s && s !== '[object Object]') return s;
+    }
+  }
+  const s = String(value);
+  return s && s !== '[object Object]' ? s : null;
+}
+
+async function findVvcById(db, rawId) {
+  const idStr = normalizeIdString(rawId);
+  if (!idStr) return null;
+
+  if (ObjectId.isValid(idStr)) {
+    try {
+      const asOid = new ObjectId(idStr);
+      if (String(asOid) === idStr) {
+        const byOid = await db.collection('VVC').findOne({ _id: asOid });
+        if (byOid) return byOid;
+      }
+    } catch {
+      /* try string _id below */
+    }
+  }
+
+  return db.collection('VVC').findOne({ _id: idStr });
 }
 
 const envConfig = loadEnvConfig();
@@ -46,7 +83,6 @@ export default async function handler(req, res) {
 
   let client;
   try {
-    // Verify authentication - allow students
     const user = await authMiddleware(req);
     if (!['student', 'admin', 'developer', 'assistant'].includes(user.role)) {
       return res.status(403).json({ error: 'Forbidden: Access denied' });
@@ -55,64 +91,73 @@ export default async function handler(req, res) {
     const { vvc_id } = req.body;
 
     if (!vvc_id) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        error: 'VVC ID is required'
+        error: 'VVC ID is required',
       });
     }
 
     client = await MongoClient.connect(MONGO_URI);
     const db = client.db(DB_NAME);
 
-    // Get student ID
-    const studentId = parseInt(user.assistant_id || user.id);
+    const studentId = parseInt(user.assistant_id || user.id, 10);
 
-    // Find the VVC record
-    const vvcRecord = await db.collection('VVC').findOne({ _id: new ObjectId(vvc_id) });
+    const vvcRecord = await findVvcById(db, vvc_id);
 
     if (!vvcRecord) {
-      return res.status(404).json({ 
+      // 200 so restore can fall back to the mirrored student entry without Axios throw
+      return res.status(200).json({
         success: false,
-        error: 'VVC record not found'
+        valid: false,
+        error: 'VVC record not found',
+        code: CODE_ERROR.NOT_FOUND,
       });
     }
 
-    // Check if code is deactivated
     if (vvcRecord.code_state === 'Deactivated') {
       return res.status(200).json(codeErrorPayload('vvc', CODE_ERROR.DEACTIVATED));
     }
 
-    // Check if code belongs to another student (for number_of_views / number_of_days)
     const codeSettings = vvcRecord.code_settings || 'number_of_views';
     if (codeSettings === 'number_of_views') {
       if (vvcRecord.viewed_by_who !== null && vvcRecord.viewed_by_who !== studentId) {
-        return res.status(200).json(codeErrorPayload('vvc', CODE_ERROR.USED_BY_ANOTHER, {
-          code_settings: 'number_of_views',
-        }));
+        return res.status(200).json(
+          codeErrorPayload('vvc', CODE_ERROR.USED_BY_ANOTHER, {
+            code_settings: 'number_of_views',
+          })
+        );
       }
-      
+
       if (vvcRecord.number_of_views === null || vvcRecord.number_of_views <= 0) {
-        return res.status(200).json(codeErrorPayload('vvc', CODE_ERROR.NO_VIEWS_REMAINING, {
-          code_settings: 'number_of_views',
-        }));
+        return res.status(200).json(
+          codeErrorPayload('vvc', CODE_ERROR.NO_VIEWS_REMAINING, {
+            code_settings: 'number_of_views',
+          })
+        );
       }
     } else if (codeSettings === 'number_of_days') {
       if (vvcRecord.viewed_by_who !== null && vvcRecord.viewed_by_who !== studentId) {
-        return res.status(200).json(codeErrorPayload('vvc', CODE_ERROR.USED_BY_ANOTHER, {
-          code_settings: 'number_of_days',
-        }));
+        return res.status(200).json(
+          codeErrorPayload('vvc', CODE_ERROR.USED_BY_ANOTHER, {
+            code_settings: 'number_of_days',
+          })
+        );
       }
       if (!isCodeNumberOfDaysValid(vvcRecord.access_started_at, vvcRecord.number_of_days)) {
-        return res.status(200).json(codeErrorPayload('vvc', CODE_ERROR.DAYS_EXPIRED, {
-          code_settings: 'number_of_days',
-        }));
+        return res.status(200).json(
+          codeErrorPayload('vvc', CODE_ERROR.DAYS_EXPIRED, {
+            code_settings: 'number_of_days',
+          })
+        );
       }
     } else if (codeSettings === 'deadline_date' && vvcRecord.deadline_date) {
       if (isDeadlinePassedEgypt(vvcRecord.deadline_date, null)) {
-        return res.status(200).json(codeErrorPayload('vvc', CODE_ERROR.DEADLINE_EXPIRED, {
-          code_settings: 'deadline_date',
-          deadline_date: vvcRecord.deadline_date,
-        }));
+        return res.status(200).json(
+          codeErrorPayload('vvc', CODE_ERROR.DEADLINE_EXPIRED, {
+            code_settings: 'deadline_date',
+            deadline_date: vvcRecord.deadline_date,
+          })
+        );
       }
     }
 
@@ -121,9 +166,9 @@ export default async function handler(req, res) {
     const computedDeadline =
       codeSettings === 'number_of_days'
         ? computeAccessDeadlineDate(accessStartedAt, numberOfDays)
-        : (vvcRecord.deadline_date || null);
+        : vvcRecord.deadline_date || null;
 
-    return res.status(200).json({ 
+    return res.status(200).json({
       success: true,
       valid: true,
       vvc_id: vvcRecord._id.toString(),
@@ -132,7 +177,7 @@ export default async function handler(req, res) {
       number_of_days: numberOfDays,
       access_started_at: accessStartedAt,
       deadline_date: computedDeadline,
-      code_lesson: vvcRecord.code_lesson || 'All'
+      code_lesson: vvcRecord.code_lesson || 'All',
     });
   } catch (error) {
     console.error('❌ Error in VVC get-by-id API:', error);

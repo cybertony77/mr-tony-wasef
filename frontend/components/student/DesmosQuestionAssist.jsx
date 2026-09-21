@@ -5,6 +5,7 @@ import { useSystemConfig } from '../../lib/api/system';
 import {
   createDesmosCalculator,
   DESMOS_CALC_TYPES,
+  getDefaultDesmosCalcType,
   labelDesmosIframes,
   loadDesmosApi,
 } from '../../lib/desmosApi';
@@ -172,6 +173,8 @@ export default function DesmosQuestionAssist({
   // SYSTEM_DESMOS_INTEGRATIONS (exposed as desmos_integrations)
   const featureOn = isFeatureEnabled(systemConfig?.desmos_integrations);
   const desmosConfigured = isFeatureEnabled(systemConfig?.desmos_configured);
+  const isNationalSystem = isFeatureEnabled(systemConfig?.national_system);
+  const defaultCalcType = getDefaultDesmosCalcType(isNationalSystem);
   const questionWantsDesmos = isDesmosEnabledForQuestion(useDesmos);
   // Both required: use_desmos=true AND SYSTEM_DESMOS_INTEGRATIONS=true (plus server key).
   // API key is never sent to the client — calculator loads via /api/desmos/calculator
@@ -192,7 +195,7 @@ export default function DesmosQuestionAssist({
 
   const [open, setOpen] = useState(false);
   const [everOpened, setEverOpened] = useState(false);
-  const [calcType, setCalcType] = useState('graphing');
+  const [calcType, setCalcType] = useState(defaultCalcType);
   const [status, setStatus] = useState('idle');
   const [errorMsg, setErrorMsg] = useState('');
   const [portalReady, setPortalReady] = useState(false);
@@ -207,6 +210,7 @@ export default function DesmosQuestionAssist({
   const dragRef = useRef(null);
   const resizeRef = useRef(null);
   const defaultSizeRef = useRef(null); // desktop natural size — resize may only grow width from this
+  const userPickedTypeRef = useRef(false);
 
   const destroyCalculator = useCallback(() => {
     try {
@@ -235,11 +239,18 @@ export default function DesmosQuestionAssist({
     setPortalReady(true);
   }, []);
 
+  // Apply NATIONAL_SYSTEM default once config arrives (before the user picks a type)
+  useEffect(() => {
+    if (userPickedTypeRef.current) return;
+    setCalcType(defaultCalcType);
+  }, [defaultCalcType]);
+
   // Reset only when question changes (next / previous)
   useEffect(() => {
     setOpen(false);
     setEverOpened(false);
-    setCalcType('graphing');
+    userPickedTypeRef.current = false;
+    setCalcType(defaultCalcType);
     setStatus('idle');
     setErrorMsg('');
     setDragPos(null);
@@ -250,7 +261,7 @@ export default function DesmosQuestionAssist({
     resizeRef.current = null;
     defaultSizeRef.current = null;
     destroyCalculator();
-  }, [instanceKey, destroyCalculator]);
+  }, [instanceKey, defaultCalcType, destroyCalculator]);
 
   // Clear custom drag/size when leaving desktop
   useEffect(() => {
@@ -757,10 +768,12 @@ export default function DesmosQuestionAssist({
         <div className={styles.panelHeaderCenter}>
           <CalculatorTypeSelect
             value={calcType}
-            onChange={setCalcType}
+            onChange={(nextType) => {
+              userPickedTypeRef.current = true;
+              setCalcType(nextType);
+            }}
             disabled={status === 'loading'}
-          />
-        </div>
+          />        </div>
         <button
           type="button"
           className={styles.closeBtn}
