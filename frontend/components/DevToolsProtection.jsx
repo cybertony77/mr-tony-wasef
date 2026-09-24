@@ -1,7 +1,7 @@
 /**
  * DevTools deterrence when DEVTOOLS_BLOCK=true.
  *
- * Detects docked/undocked DevTools via outer/inner window gaps (baseline-learned),
+ * Detects docked DevTools via outer/inner window gaps (baseline-learned),
  * blocks shortcuts/context menu, shows overlay + 15s countdown, then logs out.
  * Skips: config off, phones/tablets (no desktop DevTools), developers, embed shells.
  * Public pages (e.g. / login): overlay only. Authenticated pages: overlay + 15s logout.
@@ -14,14 +14,14 @@ import {
   shouldProtectCurrentRoute,
   isPublicPath,
 } from '../lib/devtoolsProtection/routes';
+import {
+  createViewportDetector,
+  measureWindowGaps,
+} from '../lib/devtoolsProtection/detectViewport';
 
 const IS_DEV = process.env.NODE_ENV === 'development';
 const COUNTDOWN_SECONDS = 15;
-const OPEN_DELTA = 120;
-const CLOSE_DELTA = 80;
-const REQUIRED_DETECTIONS = 2;
 const CHECK_INTERVAL_MS = 400;
-const BASELINE_SAMPLES_NEEDED = 4;
 
 function logDiag(payload) {
   if (!IS_DEV) return;
@@ -140,74 +140,22 @@ export default function DevToolsProtection({
 
     let rafId = 0;
     let lastCheck = 0;
-    let baselineWidthGap = null;
-    let baselineHeightGap = null;
-    let baselineSamples = 0;
-    let detectionCount = 0;
-    let clearCount = 0;
-
-    const readGaps = () => ({
-      widthGap: Math.max(0, window.outerWidth - window.innerWidth),
-      heightGap: Math.max(0, window.outerHeight - window.innerHeight),
-    });
+    let detected = false;
+    const detector = createViewportDetector();
 
     const detectDevTools = () => {
-      const { widthGap, heightGap } = readGaps();
-
-      // Absolute size: DevTools already open on first paint (baseline would hide it)
-      const absolutelyOpen =
-        widthGap > OPEN_DELTA + 40 || heightGap > OPEN_DELTA + 40;
-
-      if (baselineWidthGap === null || baselineSamples < BASELINE_SAMPLES_NEEDED) {
-        if (absolutelyOpen) {
-          detectionCount += 1;
-          if (detectionCount >= REQUIRED_DETECTIONS) {
-            setDevToolsDetected(true);
-          }
-          // Do not lock a "DevTools-open" baseline
-          return;
-        }
-        baselineWidthGap =
-          baselineWidthGap === null ? widthGap : Math.min(baselineWidthGap, widthGap);
-        baselineHeightGap =
-          baselineHeightGap === null ? heightGap : Math.min(baselineHeightGap, heightGap);
-        baselineSamples += 1;
-        detectionCount = 0;
-        clearCount = 0;
-        setDevToolsDetected(false);
-        return;
-      }
-
-      const widthIncrease = widthGap - baselineWidthGap;
-      const heightIncrease = heightGap - baselineHeightGap;
-      const looksOpen =
-        absolutelyOpen ||
-        widthIncrease > OPEN_DELTA ||
-        heightIncrease > OPEN_DELTA;
-      const looksClosed =
-        !absolutelyOpen &&
-        widthIncrease < CLOSE_DELTA &&
-        heightIncrease < CLOSE_DELTA;
-
-      if (looksOpen) {
-        clearCount = 0;
-        detectionCount += 1;
-        if (detectionCount >= REQUIRED_DETECTIONS) {
-          setDevToolsDetected(true);
-          detectionCount = REQUIRED_DETECTIONS;
-        }
-        return;
-      }
-
-      if (looksClosed) {
-        detectionCount = 0;
-        clearCount += 1;
-        if (clearCount >= 2) {
-          setDevToolsDetected(false);
-          baselineWidthGap = Math.min(baselineWidthGap, widthGap);
-          baselineHeightGap = Math.min(baselineHeightGap, heightGap);
-        }
-      }
+      const gaps = measureWindowGaps(window);
+      if (!gaps) return;
+      const next = detector.sample(gaps.widthGap, gaps.heightGap);
+      if (next === detected) return;
+      detected = next;
+      setDevToolsDetected(next);
+      logDiag({
+        phase: 'viewport',
+        detected: next,
+        widthGap: Math.round(gaps.widthGap),
+        heightGap: Math.round(gaps.heightGap),
+      });
     };
 
     const continuousCheck = (timestamp) => {
